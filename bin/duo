@@ -1,0 +1,498 @@
+#!/usr/bin/env bash
+# duo — zenduo CLI for the ASUS Zenbook Duo (2024) UX8406MA.
+#
+# Read-only anywhere (incl. a live USB):  doctor, status, fn-probe, log
+# Needs a GNOME session:                  top/bottom/both/toggle, watch-displays,
+#                                         set-tablet-mapping, watch-rotation
+# May need the root helper / udev rule:   sync-backlight, kb-backlight, bat-limit
+#
+# Design (PLAN.md §11): fail-safe (never zero panels), native-first with
+# userspace fallback, poll-don't-storm (1 Hz + debounce), Mutter D-Bus only.
+set -euo pipefail
+
+DUO_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DUO_ROOT/lib"
+TAG=zenduo
+
+KBD_VID=0b05
+KBD_PID=1b2c
+TOP_PANEL=eDP-1
+BOTTOM_PANEL=eDP-2
+NATIVE_LED=/sys/class/leds/asus::kbd_backlight
+
+log() { printf '[%s] %s\n' "$TAG" "$*"; logger -t "$TAG" -- "$*" 2>/dev/null || true; }
+
+usage() {
+  cat <<'EOF'
+usage: duo <command>
+
+  doctor                 full read-only hardware/health probe (live-USB safe)
+  status                 quick glance: panels, keyboard, backlight, battery limit
+  top|bottom|both        enable that panel set (refuses all-off)
+  toggle                 bottom panel on <-> off
+  watch-displays         daemon: keyboard docked -> top only; undocked -> both
+  sync-backlight [src [dst]]   copy panel backlight percentage src -> dst
+  watch-backlight [src [dst]]  daemon: keep dst backlight synced to src
+  kb-backlight <0-3>     keyboard backlight (native LED if present, else HID)
+  bat-limit <20-100>     battery charge-limit threshold
+  set-tablet-mapping     map each touchscreen to its own panel (GNOME 46+)
+  watch-rotation         daemon: follow accelerometer orientation (EXPERIMENTAL)
+  fn-probe               interactively inventory what the Fn keys emit
+  log                    follow zenduo journal messages
+EOF
+  exit 64
+}
+
+# ── shared probes ────────────────────────────────────────────────────────────
+
+kb_attached() {
+  local d
+  for d in /sys/bus/usb/devices/*/idVendor; do
+    [ -r "$d" ] || continue
+    if [ "$(cat "$d" 2>/dev/null)" = "$KBD_VID" ] \
+       && [ "$(cat "${d%idVendor}idProduct" 2>/dev/null)" = "$KBD_PID" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+panel_status() { # <connector-suffix like eDP-1> -> "connected"/"disconnected"/absent
+  local f
+  for f in /sys/class/drm/card*-"$1"/status; do
+    [ -r "$f" ] && { cat "$f"; return 0; }
+  done
+  echo absent
+}
+
+panel_enabled() {
+  local f
+  for f in /sys/class/drm/card*-"$1"/enabled; do
+    [ -r "$f" ] && { cat "$f"; return 0; }
+  done
+  echo absent
+}
+
+backlight_devices() { ls /sys/class/backlight 2>/dev/null || true; }
+
+backlight_pct() { # <device>
+  local base="/sys/class/backlight/$1" cur max
+  cur="$(cat "$base/brightness" 2>/dev/null)" || return 1
+  max="$(cat "$base/max_brightness" 2>/dev/null)" || return 1
+  [ "$max" -gt 0 ] || return 1
+  echo $(( cur * 100 / max ))
+}
+
+# ── doctor ───────────────────────────────────────────────────────────────────
+
+D_PASS=0 D_WARN=0 D_FAIL=0 D_MUSTFAIL=0
+ck() { # <PASS|WARN|FAIL|INFO> <must?0/1> <message>
+  local verdict="$1" must="$2"; shift 2
+  case "$verdict" in
+    PASS) D_PASS=$((D_PASS+1)); printf '  [ OK ] %s\n' "$*" ;;
+    WARN) D_WARN=$((D_WARN+1)); printf '  [WARN] %s\n' "$*" ;;
+    INFO)                       printf '  [info] %s\n' "$*" ;;
+    FAIL)
+      D_FAIL=$((D_FAIL+1))
+      if [ "$must" = 1 ]; then D_MUSTFAIL=$((D_MUSTFAIL+1)); printf '  [FAIL/MUST] %s\n' "$*"
+      else printf '  [FAIL] %s\n' "$*"; fi
+      ;;
+  esac
+}
+
+cmd_doctor() {
+  echo "== zenduo doctor — $(date -u +%FT%TZ) =="
+  echo
+  echo "-- system --"
+  ck INFO 0 "kernel: $(uname -r)"
+  if [ -r /etc/os-release ]; then
+    . /etc/os-release
+    ck INFO 0 "distro: ${PRETTY_NAME:-unknown}"
+  fi
+  ck INFO 0 "session: type=${XDG_SESSION_TYPE:-unset} desktop=${XDG_CURRENT_DESKTOP:-unset}"
+  if command -v gnome-shell >/dev/null 2>&1; then
+    ck INFO 0 "$(gnome-shell --version 2>/dev/null || echo 'GNOME Shell version unavailable')"
+  fi
+  if grep -q 'i915.enable_psr=0' /proc/cmdline 2>/dev/null; then
+    ck PASS 0 "cmdline has i915.enable_psr=0 (OLED flicker fix)"
+  else
+    ck INFO 0 "cmdline lacks i915.enable_psr=0 (expected before 'make system'; watch for OLED flicker)"
+  fi
+  if command -v mokutil >/dev/null 2>&1; then
+    ck INFO 0 "secure boot: $({ mokutil --sb-state 2>/dev/null || echo unknown; } | tr '\n' ' ')"
+  fi
+
+  echo
+  echo "-- storage (V16) --"
+  local nvme_names="" d
+  for d in /sys/block/nvme*; do
+    [ -e "$d" ] && nvme_names="$nvme_names$(basename "$d") "
+  done
+  if [ -n "$nvme_names" ]; then
+    ck PASS 1 "NVMe visible: $nvme_names"
+  else
+    ck FAIL 1 "no NVMe device visible — check BIOS VMD/RST (LOOK, don't toggle: PLAN.md V16)"
+  fi
+  if command -v lspci >/dev/null 2>&1 && lspci 2>/dev/null | grep -qi 'volume management device'; then
+    ck INFO 0 "Intel VMD controller present (NVMe is behind VMD; fine if the disk is visible)"
+  fi
+
+  echo
+  echo "-- graphics & panels (V9/V10) --"
+  local gpu_found=0 d
+  for d in /sys/bus/pci/devices/*; do
+    if [ "$(cat "$d/vendor" 2>/dev/null)" = 0x8086 ] && [ "$(cat "$d/device" 2>/dev/null)" = 0x7d55 ]; then
+      gpu_found=1
+      ck PASS 0 "iGPU 8086:7d55 (Meteor Lake Arc) present, driver: $(basename "$(readlink -f "$d/driver" 2>/dev/null)" 2>/dev/null || echo none)"
+    fi
+  done
+  [ "$gpu_found" = 1 ] || ck WARN 0 "iGPU 8086:7d55 not found — different SKU? (doctor expects the UX8406MA)"
+  local p st en connected=0
+  for p in "$TOP_PANEL" "$BOTTOM_PANEL"; do
+    st="$(panel_status "$p")"; en="$(panel_enabled "$p")"
+    if [ "$st" = connected ]; then
+      connected=$((connected+1))
+      ck PASS 0 "panel $p: connected (enabled: $en)"
+    else
+      ck FAIL 1 "panel $p: $st — the i915 second-screen problem? (PLAN.md V9/R5)"
+    fi
+  done
+  [ "$connected" = 2 ] && ck PASS 1 "both internal panels detected"
+  local b
+  for b in $(backlight_devices); do
+    ck INFO 0 "backlight device: $b ($(backlight_pct "$b" || echo '?')%)"
+  done
+
+  echo
+  echo "-- GNOME / Mutter --"
+  if command -v gdbus >/dev/null 2>&1 && [ -n "${DBUS_SESSION_BUS_ADDRESS:-}${XDG_RUNTIME_DIR:-}" ]; then
+    if gdbus call --session --dest org.gnome.Mutter.DisplayConfig \
+         --object-path /org/gnome/Mutter/DisplayConfig \
+         --method org.freedesktop.DBus.Peer.Ping >/dev/null 2>&1; then
+      ck PASS 0 "Mutter DisplayConfig reachable on the session bus"
+    else
+      ck WARN 0 "Mutter DisplayConfig NOT reachable (not in a GNOME session?) — display commands won't work here"
+    fi
+  else
+    ck WARN 0 "no session bus/gdbus — skipping Mutter check (TTY?)"
+  fi
+
+  echo
+  echo "-- keyboard (V8/V10) --"
+  if kb_attached; then
+    ck PASS 0 "keyboard $KBD_VID:$KBD_PID attached via USB (pogo)"
+    if [ -d /sys/module/hid_asus ]; then
+      ck PASS 0 "hid_asus module loaded"
+    else
+      ck WARN 0 "hid_asus module not loaded (keys likely still work via hid-generic)"
+    fi
+  else
+    ck INFO 0 "keyboard not attached via USB right now (detached/BT is fine — re-run attached for full coverage)"
+  fi
+  if [ -d "$NATIVE_LED" ]; then
+    ck PASS 0 "NATIVE kbd-backlight LED present ($NATIVE_LED) — kernel support has landed! (V8 ground truth)"
+  else
+    ck INFO 0 "no native kbd-backlight LED (expected on current kernels, V8) — 'duo kb-backlight' uses the HID fallback"
+  fi
+  local u hid_found=0
+  for u in /sys/class/hidraw/hidraw*/device/uevent; do
+    [ -r "$u" ] || continue
+    if grep -qi "0000${KBD_VID}:0000${KBD_PID}" "$u" 2>/dev/null; then
+      hid_found=1
+      local node
+      node="/dev/$(echo "$u" | cut -d/ -f5)"
+      if [ -w "$node" ]; then
+        ck PASS 0 "hidraw node $node present and writable (udev rule active)"
+      else
+        ck INFO 0 "hidraw node $node present, not writable by this user (udev rule installs with 'make system')"
+      fi
+    fi
+  done
+  if kb_attached && [ "$hid_found" = 0 ]; then
+    ck WARN 0 "keyboard attached but no matching hidraw node — HID backlight fallback unavailable"
+  fi
+
+  echo
+  echo "-- touch digitizers (V7/V10) --"
+  if [ -r /proc/bus/input/devices ]; then
+    if grep -qi 'Vendor=04f3 Product=4259' /proc/bus/input/devices; then
+      ck PASS 0 "top digitizer ELAN9008 04f3:4259 present"
+    else
+      ck WARN 0 "top digitizer 04f3:4259 not found"
+    fi
+    if grep -qi 'Vendor=04f3 Product=42ec' /proc/bus/input/devices; then
+      ck PASS 0 "bottom digitizer ELAN9009 04f3:42ec present"
+    else
+      ck WARN 0 "bottom digitizer 04f3:42ec not found"
+    fi
+  else
+    ck WARN 0 "/proc/bus/input/devices unreadable — skipping digitizer check"
+  fi
+
+  echo
+  echo "-- sensors --"
+  local iio_count
+  iio_count="$(ls -d /sys/bus/iio/devices/iio:device* 2>/dev/null | wc -l || true)"
+  if [ "$iio_count" -gt 0 ]; then
+    ck PASS 0 "IIO sensors: $iio_count device(s)"
+  else
+    ck WARN 0 "no IIO sensors visible — auto-rotation won't work"
+  fi
+  if command -v systemctl >/dev/null 2>&1; then
+    ck INFO 0 "iio-sensor-proxy: $(systemctl is-active iio-sensor-proxy 2>/dev/null || echo not-found)"
+  fi
+
+  echo
+  echo "-- audio (V11) --"
+  if [ -r /proc/asound/cards ] && grep -q '\[' /proc/asound/cards 2>/dev/null; then
+    ck PASS 0 "sound card(s): $(grep '\[' /proc/asound/cards | tr -s ' ' | tr '\n' ';')"
+    if grep -qi sof /proc/asound/cards; then
+      ck PASS 0 "Intel SOF driver active"
+    else
+      ck WARN 0 "no SOF card — speakers may be 'dummy output' (V11)"
+    fi
+  else
+    ck FAIL 0 "no sound cards registered — 'dummy output' likely (V11: firmware-sof-signed + kernel)"
+  fi
+
+  echo
+  echo "-- network (V15) --"
+  local wifi_id=""
+  if command -v lspci >/dev/null 2>&1; then
+    wifi_id="$(lspci -nn 2>/dev/null | grep -i 'network controller' || true)"
+  fi
+  if [ -n "$wifi_id" ]; then
+    ck INFO 0 "wifi: $wifi_id"
+    case "$wifi_id" in
+      *AX211*|*51f1*) ck PASS 0 "Intel AX211 — well supported" ;;
+      *BE200*|*272b*) ck WARN 0 "Intel BE200 — watch for post-suspend drops (PLAN.md §14.6/V15)" ;;
+    esac
+  else
+    ck INFO 0 "wifi card id unavailable (lspci missing?); interfaces: $(ls /sys/class/net 2>/dev/null | tr '\n' ' ')"
+  fi
+
+  echo
+  echo "-- power (V12/V13) --"
+  local bat_found=0 f
+  for f in /sys/class/power_supply/BAT*/charge_control_end_threshold; do
+    [ -e "$f" ] || continue
+    bat_found=1
+    ck PASS 0 "battery charge-limit node: $f (current: $(cat "$f" 2>/dev/null)%)"
+  done
+  [ "$bat_found" = 1 ] || ck WARN 0 "no charge_control_end_threshold — asus-wmi not active? 'duo bat-limit' unavailable"
+  if [ -r /sys/firmware/acpi/platform_profile ]; then
+    ck INFO 0 "platform_profile: $(cat /sys/firmware/acpi/platform_profile) (choices: $(cat /sys/firmware/acpi/platform_profile_choices 2>/dev/null || echo '?'))"
+  else
+    ck INFO 0 "no platform_profile node (thermal profiles deferred, PLAN.md §15)"
+  fi
+  if [ -r /sys/power/mem_sleep ]; then
+    ck INFO 0 "mem_sleep: $(cat /sys/power/mem_sleep) (s2idle-only expected, V13)"
+  fi
+
+  echo
+  echo "-- kernel log scan --"
+  if dmesg >/dev/null 2>&1; then
+    local bad
+    bad="$(dmesg 2>/dev/null | grep -iE '(i915|asus|sof).*(error|fail|timeout)' | tail -n 5 || true)"
+    if [ -n "$bad" ]; then
+      ck WARN 0 "suspicious dmesg lines (last 5):"
+      printf '%s\n' "$bad" | sed 's/^/         /'
+    else
+      ck PASS 0 "no i915/asus/sof errors in dmesg"
+    fi
+  else
+    ck INFO 0 "dmesg not readable as this user — re-run with sudo for the log scan"
+  fi
+
+  echo
+  echo "== summary: $D_PASS ok, $D_WARN warnings, $D_FAIL failures ($D_MUSTFAIL gate-critical) =="
+  if [ "$D_MUSTFAIL" -gt 0 ]; then
+    echo "== GATE: NO-GO — a MUST check failed (PLAN.md Phase C). Do not modify the disk. =="
+    return 1
+  fi
+  echo "== GATE: no MUST failures. Complete the manual checks in PLAN.md §6 before installing. =="
+}
+
+# ── display commands ─────────────────────────────────────────────────────────
+
+cmd_watch_displays() {
+  log "watch-displays started (poll 1 Hz, debounce 2 samples)"
+  local state prev="" count=0 applied=""
+  trap 'log "watch-displays stopping"; exit 0' INT TERM
+  while :; do
+    if kb_attached; then state=attached; else state=detached; fi
+    if [ "$state" = "$prev" ]; then count=$((count+1)); else count=1; prev="$state"; fi
+    if [ "$count" -ge 2 ] && [ "$state" != "$applied" ]; then
+      if [ "$state" = attached ]; then
+        log "keyboard attached -> top panel only"
+        if python3 "$LIB/displayctl.py" top; then applied=$state; else log "displayctl failed; retrying next poll"; fi
+      else
+        log "keyboard detached -> both panels"
+        if python3 "$LIB/displayctl.py" both; then applied=$state; else log "displayctl failed; retrying next poll"; fi
+      fi
+    fi
+    sleep 1
+  done
+}
+
+# ── backlight sync ───────────────────────────────────────────────────────────
+
+guess_backlights() { # sets SRC_BL and DST_BL
+  SRC_BL="${1:-intel_backlight}"
+  DST_BL="${2:-}"
+  if [ -z "$DST_BL" ]; then
+    local d
+    for d in $(backlight_devices); do
+      [ "$d" != "$SRC_BL" ] && DST_BL="$d" && break
+    done
+  fi
+}
+
+cmd_sync_backlight() {
+  guess_backlights "${1:-}" "${2:-}"
+  [ -n "${DST_BL:-}" ] || { log "only one backlight device ($(backlight_devices | tr '\n' ' ')) — nothing to sync (VERIFY-ON-HW: bottom panel device name)"; return 1; }
+  local pct
+  pct="$(backlight_pct "$SRC_BL")" || { log "cannot read $SRC_BL"; return 1; }
+  sudo -n /usr/local/sbin/zenduo-helper backlight "$DST_BL" "$pct" \
+    || { log "helper call failed — is the sudoers rule installed? (sudo make system HOST=zenbook-duo)"; return 1; }
+  log "synced $SRC_BL ($pct%) -> $DST_BL"
+}
+
+cmd_watch_backlight() {
+  guess_backlights "${1:-}" "${2:-}"
+  [ -n "${DST_BL:-}" ] || { log "second backlight device not found — cannot watch"; return 1; }
+  log "watch-backlight started ($SRC_BL -> $DST_BL)"
+  trap 'log "watch-backlight stopping"; exit 0' INT TERM
+  local file="/sys/class/backlight/$SRC_BL/brightness"
+  while :; do
+    cmd_sync_backlight "$SRC_BL" "$DST_BL" || true
+    if command -v inotifywait >/dev/null 2>&1; then
+      inotifywait -qq -e modify -t 30 "$file" || true
+    else
+      sleep 2
+    fi
+  done
+}
+
+# ── keyboard backlight / battery ─────────────────────────────────────────────
+
+cmd_kb_backlight() {
+  local level="${1:-}"
+  case "$level" in 0|1|2|3) ;; *) usage ;; esac
+  if [ -d "$NATIVE_LED" ]; then
+    local max
+    max="$(cat "$NATIVE_LED/max_brightness" 2>/dev/null || echo 3)"
+    local value=$(( level * max / 3 ))
+    if echo "$value" > "$NATIVE_LED/brightness" 2>/dev/null; then
+      log "kb-backlight $level via NATIVE LED"
+      return 0
+    fi
+    log "native LED present but not writable — falling back to HID (udev rule missing?)"
+  fi
+  python3 "$LIB/kb_backlight.py" "$level"
+}
+
+cmd_bat_limit() {
+  local pct="${1:-}"
+  if ! [[ "$pct" =~ ^[0-9]+$ ]] || [ "$pct" -lt 20 ] || [ "$pct" -gt 100 ]; then
+    usage
+  fi
+  local f applied=0
+  for f in /sys/class/power_supply/BAT*/charge_control_end_threshold; do
+    [ -e "$f" ] || continue
+    if echo "$pct" > "$f" 2>/dev/null; then
+      applied=1
+    fi
+  done
+  if [ "$applied" = 0 ]; then
+    sudo -n /usr/local/sbin/zenduo-helper batlimit "$pct" \
+      || { log "cannot set battery limit (node missing or helper not installed)"; return 1; }
+  fi
+  log "battery charge limit set to $pct% (note: resets on reboot — the home-manager module can re-apply it at login)"
+}
+
+# ── tablet mapping / rotation / fn-probe ─────────────────────────────────────
+
+cmd_set_tablet_mapping() {
+  command -v dconf >/dev/null 2>&1 || { log "dconf not found — GNOME session required"; return 1; }
+  # Ask Mutter which vendor/product/serial each panel reports, then pin each
+  # ELAN digitizer to its panel (GNOME 46+ honors these keys; PLAN.md V7).
+  python3 - "$LIB/displayctl.py" <<'PYEOF'
+import json, subprocess, sys
+state = json.loads(subprocess.check_output(
+    ["python3", sys.argv[1], "state", "--json"], text=True))
+mons = state["monitors"]
+pairs = [("04f3:4259", "eDP-1"), ("04f3:42ec", "eDP-2")]
+for digitizer, connector in pairs:
+    mon = mons.get(connector)
+    if not mon:
+        print(f"set-tablet-mapping: {connector} not present — skipping {digitizer}")
+        continue
+    value = json.dumps([mon["vendor"], mon["product"], mon["serial"]]).replace('"', "'")
+    key = f"/org/gnome/desktop/peripherals/touchscreens/{digitizer}/output"
+    subprocess.run(["dconf", "write", key, value], check=True)
+    print(f"set-tablet-mapping: {digitizer} -> {connector} {value}")
+PYEOF
+  log "tablet mapping written (VERIFY-ON-HW: PLAN.md test I-11/I-12)"
+}
+
+cmd_watch_rotation() {
+  command -v monitor-sensor >/dev/null 2>&1 || { log "monitor-sensor missing (iio-sensor-proxy) — sudo make system HOST=zenbook-duo"; return 1; }
+  log "watch-rotation started (EXPERIMENTAL — logs orientation, applies no changes yet)"
+  trap 'log "watch-rotation stopping"; exit 0' INT TERM
+  monitor-sensor --accel 2>/dev/null | while read -r line; do
+    case "$line" in
+      *"orientation changed"*) log "rotation event: $line" ;;
+    esac
+  done
+}
+
+cmd_fn_probe() {
+  echo "fn-probe: press each Fn combo once (F1..F12, Fn+Esc); Ctrl-C when done."
+  if command -v libinput >/dev/null 2>&1 && [ "$(id -u)" = 0 ]; then
+    libinput debug-events --show-keycodes 2>/dev/null \
+      | grep --line-buffered KEYBOARD_KEY \
+      | tee /tmp/zenduo-fn-probe.log
+  else
+    echo "fn-probe: for keycode capture run 'sudo duo fn-probe' (libinput debug-events needs root)."
+    echo "fn-probe: alternatively watch GNOME react (brightness/volume OSD) and note which combos do nothing."
+  fi
+}
+
+cmd_status() {
+  echo "panels:"
+  local p
+  for p in "$TOP_PANEL" "$BOTTOM_PANEL"; do
+    printf '  %-8s status=%s enabled=%s\n' "$p" "$(panel_status "$p")" "$(panel_enabled "$p")"
+  done
+  if kb_attached; then echo "keyboard: attached (USB $KBD_VID:$KBD_PID)"; else echo "keyboard: detached (or BT)"; fi
+  if [ -d "$NATIVE_LED" ]; then echo "kb-backlight: native LED available"; else echo "kb-backlight: HID fallback path"; fi
+  local d
+  for d in $(backlight_devices); do
+    echo "backlight: $d = $(backlight_pct "$d" || echo '?')%"
+  done
+  local f
+  for f in /sys/class/power_supply/BAT*/charge_control_end_threshold; do
+    [ -e "$f" ] && echo "battery limit: $(cat "$f")%"
+  done
+  true
+}
+
+# ── dispatch ─────────────────────────────────────────────────────────────────
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  doctor)             cmd_doctor "$@" ;;
+  status)             cmd_status "$@" ;;
+  top|bottom|both|toggle) python3 "$LIB/displayctl.py" "$cmd" "$@" ;;
+  watch-displays)     cmd_watch_displays "$@" ;;
+  sync-backlight)     cmd_sync_backlight "$@" ;;
+  watch-backlight)    cmd_watch_backlight "$@" ;;
+  kb-backlight)       cmd_kb_backlight "$@" ;;
+  bat-limit)          cmd_bat_limit "$@" ;;
+  set-tablet-mapping) cmd_set_tablet_mapping "$@" ;;
+  watch-rotation)     cmd_watch_rotation "$@" ;;
+  fn-probe)           cmd_fn_probe "$@" ;;
+  log)                journalctl --user -t "$TAG" -f ;;
+  *)                  usage ;;
+esac

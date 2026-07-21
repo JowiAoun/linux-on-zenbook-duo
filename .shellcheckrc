@@ -1,0 +1,6 @@
+# Repo-wide shellcheck policy (CI runs shellcheck as a hard gate).
+# SC1091: sourced files (system/lib.sh) resolve at runtime relative to the
+#         script; shellcheck can't follow them from the repo root.
+# SC2012: ls is used only on sysfs paths, whose names are kernel-controlled
+#         and never contain whitespace or control characters.
+disable=SC1091,SC2012

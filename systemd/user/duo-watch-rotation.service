@@ -1,0 +1,15 @@
+# Reference template — see duo-watch-displays.service for usage.
+# EXPERIMENTAL: currently logs orientation events without acting on them.
+[Unit]
+Description=zenduo: follow accelerometer orientation (experimental)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.dotfiles/duo/bin/duo watch-rotation
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

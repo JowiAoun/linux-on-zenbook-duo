@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# zenduo-helper — the ONLY zenduo code that runs as root (via the NOPASSWD
+# sudoers rule installed by system/50-duo-sudoers.sh, scoped to exactly
+# this binary at /usr/local/sbin/zenduo-helper).
+#
+# Verbs (input strictly validated, nothing else accepted):
+#   backlight <device> <0-100>   write a percentage to /sys/class/backlight/<device>
+#   batlimit <20-100>            set BAT* charge_control_end_threshold
+set -euo pipefail
+
+usage() {
+  echo "usage: zenduo-helper backlight <device> <0-100> | batlimit <20-100>" >&2
+  exit 64
+}
+
+case "${1:-}" in
+  backlight)
+    dev="${2:-}"
+    pct="${3:-}"
+    [[ "$dev" =~ ^[A-Za-z0-9._:-]+$ ]] || usage
+    case "$dev" in *..*) usage ;; esac
+    [[ "$pct" =~ ^[0-9]+$ ]] || usage
+    [ "$pct" -le 100 ] || usage
+    base="/sys/class/backlight/$dev"
+    if [ ! -e "$base/brightness" ] || [ ! -e "$base/max_brightness" ]; then
+      echo "zenduo-helper: no such backlight device: $dev" >&2
+      exit 66
+    fi
+    max="$(cat "$base/max_brightness")"
+    echo $(( max * pct / 100 )) > "$base/brightness"
+    ;;
+  batlimit)
+    pct="${2:-}"
+    [[ "$pct" =~ ^[0-9]+$ ]] || usage
+    if [ "$pct" -lt 20 ] || [ "$pct" -gt 100 ]; then
+      usage
+    fi
+    found=0
+    for f in /sys/class/power_supply/BAT*/charge_control_end_threshold; do
+      [ -e "$f" ] || continue
+      echo "$pct" > "$f"
+      found=1
+    done
+    [ "$found" = 1 ] || { echo "zenduo-helper: no charge_control_end_threshold node (asus-wmi missing?)" >&2; exit 66; }
+    ;;
+  *)
+    usage
+    ;;
+esac

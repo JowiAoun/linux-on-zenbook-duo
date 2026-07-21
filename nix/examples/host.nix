@@ -1,0 +1,17 @@
+# Host profile: the ASUS Zenbook Duo (2024) UX8406MA running Ubuntu 24.04.
+# Pairs with the system layer: sudo make system HOST=zenbook-duo
+{ ... }:
+
+{
+  imports = [ ../../modules/zenbook-duo ];
+
+  # Nix-installed GUI apps get icons/.desktop/XDG integration on Ubuntu.
+  targets.genericLinux.enable = true;
+
+  zenduo = {
+    enable = true;
+    # watchBacklight / watchRotation stay off until each passes the on-hardware
+    # test protocol (docs/PLAN.md §11.5); flip them here when they graduate.
+    batteryLimit = 80;
+  };
+}
