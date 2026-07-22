@@ -84,6 +84,27 @@ ensure_pkg() {
   fi
 }
 
+# apt-get update, hiding routine per-mirror chatter (the Ign/Hit/Err/W lines for
+# a single unreachable mirror). Rationale: if AT LEAST ONE repository refreshed,
+# the cached package lists are usable and the other mirrors' failures are noise.
+# Only when NOTHING could be reached (a real connectivity problem) do we surface
+# the reasons. Missing packages that truly can't be fetched still fail loudly in
+# ensure_pkg's install step, so genuine errors are never hidden.
+apt_update() {
+  if [ "$DRY_RUN" = 1 ]; then
+    log "DRY RUN: apt-get update"
+    return 0
+  fi
+  local out
+  out="$(apt-get update 2>&1)" || true
+  if printf '%s\n' "$out" | grep -qE '^(Hit|Get):'; then
+    log "apt package lists refreshed"
+  else
+    warn "apt-get update could not reach any repository:"
+    printf '%s\n' "$out" | grep -E '^(Err|E:|W:)' | sed 's/^/    /' >&2 || true
+  fi
+}
+
 # Append a line to a file iff it isn't there verbatim.
 ensure_line() {
   local file="$1" line="$2"

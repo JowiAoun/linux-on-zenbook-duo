@@ -203,7 +203,7 @@ cmd_doctor() {
     if [ -d /sys/module/hid_asus ]; then
       ck PASS 0 "hid_asus module loaded"
     else
-      ck WARN 0 "hid_asus module not loaded (keys likely still work via hid-generic)"
+      ck WARN 0 "hid_asus not bound to $KBD_VID:$KBD_PID — typing works via hid-generic, but the media/Fn-row keys (brightness/volume/backlight) need hid_asus support for this device (absent upstream as of the research, V8) or a zenduo userspace remap"
     fi
   else
     ck INFO 0 "keyboard not attached via USB right now (detached/BT is fine — re-run attached for full coverage)"
