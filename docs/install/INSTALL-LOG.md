@@ -256,3 +256,19 @@ current pin — renaming now would break the pin; deferred to a flake-update, G2
 The apt "could not resolve" line was a transient DNS blip (packages already
 present) and the non-NixOS GPU notice is informational — run
 `non-nixos-gpu-setup` once to clear it.
+
+### Round 6: first post-install login loop — the SHELL export (Wayland GDM)
+
+After reboot, correct password bounced back to GDM (wrong password was still
+rejected — auth worked, the *session* died). Console login (Ctrl+Alt+F3) fine.
+Moving `~/.profile` aside let GNOME start, isolating home-manager's login-time
+env as the cause. Discriminators: `~/.nix-profile/share/glib-2.0/schemas` was
+empty (ruled out the XDG_DATA_DIRS schema-shadowing trap); the journal showed
+the user session cleanly reaching `exit.target` ~16 s after login (gnome-session
+*quit*, not crashed); the session is **Wayland**, so GDM sources `~/.profile`.
+Prime suspect: `home.sessionVariables.SHELL = "<nix-store>/bin/zsh"` — a SHELL
+outside `/etc/shells` makes Wayland GDM eject the session.
+**Fix:** drop the SHELL export from home.nix; install `zsh` in the system layer
+(so it's in /etc/shells) and `chsh` the login user to it the OS-correct way.
+(The ❯ prompt seen with .profile moved aside was starship-on-bash, not zsh —
+starship uses ❯ for both, so the machine was actually on bash.)
