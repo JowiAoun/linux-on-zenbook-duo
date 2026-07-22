@@ -5,6 +5,8 @@
 #   inotify-tools     inotifywait for event-driven waits
 #   iio-sensor-proxy  monitor-sensor / D-Bus accelerometer for rotation
 #   python3-gi        GObject introspection — Mutter DisplayConfig D-Bus client
+#   evtest            watch decoded evdev key events (Fn/media-key mapping;
+#                     the standard counterpart to `duo watch-input`)
 # (no pyusb: the kb-backlight fallback uses hidraw ioctls, see duo/lib/kb_backlight.py)
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -22,4 +24,5 @@ ensure_pkg \
   inotify-tools \
   iio-sensor-proxy \
   python3 \
-  python3-gi
+  python3-gi \
+  evtest

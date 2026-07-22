@@ -39,6 +39,7 @@ usage: duo <command>
   watch-rotation         daemon: follow accelerometer orientation (EXPERIMENTAL)
   fn-probe               interactively inventory what the Fn keys emit
   fn-map [--show]        guided wizard: press each Fn key -> build a key map (--show: print it)
+  watch-input            (root) decode key events from the keyboard + Asus WMI hotkeys
   log                    follow zenduo journal messages
 EOF
   exit 64
@@ -480,6 +481,18 @@ cmd_fn_map() {
   python3 "$LIB/fn_map.py" "$@"
 }
 
+cmd_watch_input() {
+  # Decode key events from the keyboard + Asus WMI hotkeys evdev nodes. Many
+  # Fn+Fx media keys arrive via ACPI (asus-nb-wmi) as input events, not hidraw;
+  # this shows them. Reading evdev needs root.
+  if [ "$(id -u)" != 0 ]; then
+    log "watch-input needs root to read /dev/input/event* — re-run:"
+    log "  sudo $(readlink -f "${BASH_SOURCE[0]}") watch-input"
+    return 1
+  fi
+  python3 "$LIB/watch_input.py"
+}
+
 cmd_status() {
   echo "panels:"
   local p
@@ -515,6 +528,7 @@ case "$cmd" in
   watch-rotation)     cmd_watch_rotation "$@" ;;
   fn-probe)           cmd_fn_probe "$@" ;;
   fn-map)             cmd_fn_map "$@" ;;
+  watch-input)        cmd_watch_input "$@" ;;
   log)                journalctl --user -t "$TAG" -f ;;
   *)                  usage ;;
 esac

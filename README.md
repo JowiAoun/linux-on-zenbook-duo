@@ -23,6 +23,7 @@ duo watch-rotation         EXPERIMENTAL: log accelerometer orientation events
 duo fn-probe               inventory what the Fn keys actually emit (raw hex)
 duo fn-map                 guided wizard: HOLD Fn, press each key -> build a key->report map
 duo fn-map --show          print the saved key->report map without re-capturing
+duo watch-input            (root) decode key events from the keyboard + Asus WMI hotkeys
 duo log                    follow zenduo journal messages
 ```
 
