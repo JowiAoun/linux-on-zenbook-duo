@@ -391,3 +391,16 @@ second-screen key (`5a 6a`) → `duo toggle`, kbd-backlight → `duo kb-backligh
 cycle. `~/.config/zenduo/fn-map.json` (from `duo fn-map`) overrides/extends the
 code table. Runs as the `duo-watch-fn` systemd user service (zenduo module,
 default-on).
+
+Confirmed on hardware + follow-up fixes:
+- **Brightness works docked AND undocked** — the daemon re-inits on every
+  reconnect, so both transports are covered (USB+OOBE turned out fine too).
+- **Second panel didn't follow** (GNOME drives only the primary backlight) →
+  the brightness action now blocks on the GNOME step, then mirrors the new level
+  onto the bottom panel via `duo sync-backlight`.
+- **`duo toggle` failed with "python3-gi missing"**: the interactive shell's
+  `python3` is the Nix one (no PyGObject); `/usr/bin/python3` has the apt
+  `python3-gi`, and the systemd watchers happened to hit the system interpreter,
+  so only interactive use broke. Fixed by pinning the gi-using scripts
+  (displayctl, set-tablet-mapping) to `PYGI=${DUO_PYGI:-/usr/bin/python3}`.
+- **kbd-backlight key is `5a c7`** (not the guessed 0xc4/0xc5) → mapped.

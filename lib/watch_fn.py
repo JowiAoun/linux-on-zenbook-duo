@@ -44,11 +44,10 @@ VENDOR_REPORT_ID = 0x5A
 # run `duo fn-map` and the saved map overrides/extends this table).
 DEFAULT_ACTIONS = {
     0x10: "brightness-down",   # confirmed: bare F5 over BT after kb-init
-    0x20: "brightness-up",     # hid-asus mapping; expected on bare F6
+    0x20: "brightness-up",     # confirmed: bare F6
     0x4E: "fn-lock",           # confirmed: Fn+Esc
     0x6A: "second-screen",     # confirmed: dedicated key left of PrtSc
-    0xC4: "kbd-backlight",     # hid-asus KBDILLUMUP — single F4 key cycles
-    0xC5: "kbd-backlight",     # hid-asus KBDILLUMDOWN
+    0xC7: "kbd-backlight",     # confirmed: bare F4 (one key cycles levels)
 }
 
 # Actions from a fn-map.json we know how to perform (everything else logged).
@@ -96,20 +95,33 @@ class Dispatcher:
         except OSError as e:
             log(f"failed to run {argv[0]}: {e}")
 
+    def run(self, argv):
+        try:
+            subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            log(f"failed to run {argv[0]}: {e}")
+
     def gsd_screen(self, method):
         # GNOME settings-daemon's own brightness path: applies the change AND
         # shows the on-screen display, exactly like a natively-handled key.
-        self.spawn(["gdbus", "call", "--session",
-                    "--dest", "org.gnome.SettingsDaemon.Power",
-                    "--object-path", "/org/gnome/SettingsDaemon/Power",
-                    "--method", f"org.gnome.SettingsDaemon.Power.Screen.{method}"])
+        # Blocking, so the follow-up second-panel sync reads the updated level.
+        self.run(["gdbus", "call", "--session",
+                  "--dest", "org.gnome.SettingsDaemon.Power",
+                  "--object-path", "/org/gnome/SettingsDaemon/Power",
+                  "--method", f"org.gnome.SettingsDaemon.Power.Screen.{method}"])
+
+    def brightness(self, method):
+        self.gsd_screen(method)
+        # GNOME drives only the primary panel; mirror the new level onto the
+        # bottom panel so both screens dim together when the keyboard is undocked.
+        self.spawn([DUO, "sync-backlight"])
 
     def dispatch(self, code, action):
         log(f"key 5a {code:02x} -> {action}")
         if action == "brightness-down":
-            self.gsd_screen("StepDown")
+            self.brightness("StepDown")
         elif action == "brightness-up":
-            self.gsd_screen("StepUp")
+            self.brightness("StepUp")
         elif action == "kbd-backlight":
             self.kb_level = (self.kb_level + 1) % 4
             self.spawn([DUO, "kb-backlight", str(self.kb_level)])
