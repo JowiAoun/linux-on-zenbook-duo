@@ -57,31 +57,39 @@ def send_handshake():
         print("kb_init: keyboard 0b05:1b2c not found on hidraw (docked?)", file=sys.stderr)
         return 1
 
+    # Send the handshake to EVERY interface, not just the first that accepts it.
+    # hid-asus targets the interface that carries the ASUS vendor collection
+    # (on this keyboard that is a later hidraw node, not the main keyboard one),
+    # so we must not stop early or the media layer never switches on.
     denied = False
-    accepted = 0
-    for report_id in REPORT_IDS:
-        report = bytes([report_id] + HANDSHAKE_TAIL)
-        for node in nodes:
-            try:
-                fd = os.open(node, os.O_RDWR)
-            except PermissionError:
-                denied = True
-                continue
-            except OSError:
-                continue
-            try:
-                fcntl.ioctl(fd, hidiocsfeature(len(report)), report)
-                accepted += 1
-                print(f"kb_init: handshake 0x{report_id:02x} accepted via {node}")
-                break
-            except OSError:
-                continue
-            finally:
-                os.close(fd)
+    total_ok = 0
+    for node in nodes:
+        try:
+            fd = os.open(node, os.O_RDWR)
+        except PermissionError:
+            denied = True
+            continue
+        except OSError:
+            continue
+        ok_ids = []
+        try:
+            for report_id in REPORT_IDS:
+                report = bytes([report_id] + HANDSHAKE_TAIL)
+                try:
+                    fcntl.ioctl(fd, hidiocsfeature(len(report)), report)
+                    ok_ids.append(report_id)
+                except OSError:
+                    pass  # this interface doesn't own this report id — expected
+        finally:
+            os.close(fd)
+        if ok_ids:
+            total_ok += len(ok_ids)
+            ids = " ".join(f"0x{r:02x}" for r in ok_ids)
+            print(f"kb_init: {node}: accepted {ids}")
 
-    if accepted:
-        print(f"kb_init: {accepted}/{len(REPORT_IDS)} handshake(s) accepted — now press "
-              "Fn+F5 etc. and watch `duo fn-probe`.")
+    if total_ok:
+        print("kb_init: handshake sent to every interface that accepted it — now press "
+              "Fn+F5 etc. and watch `duo fn-probe` / `duo watch-input`.")
         return 0
     if denied:
         print("kb_init: permission denied on hidraw — run with sudo, or install the "
