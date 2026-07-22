@@ -45,13 +45,13 @@ What this evolution **adds** (Phases F–H artifacts): `docs/` (this plan + rese
 | # | Decision | Choice | Rationale |
 |---|----------|--------|-----------|
 | D1 | Distribution | **Vanilla Ubuntu 24.04.4 LTS** (GNOME, Wayland) | See §1.1 — ratified over Arch |
-| D2 | Disk split | **~200 GB for Ubuntu**, Windows keeps the rest | Jay's choice; conservative shrink, Windows stays the BIOS-update/fallback OS |
+| D2 | Disk split | ~~200 GB~~ → **as-built: ~52 GB for Ubuntu** (Windows' `$MFT` metadata capped the shrink; Option B ratified 2026-07-22 — see [INSTALL-LOG.md](INSTALL-LOG.md)). Endgame: full-disk clean reinstall via this repo once Windows is retired | Jay's choice; conservative shrink, Windows stays the BIOS-update/fallback OS until retirement |
 | D3 | Encryption | **LUKS2 + passphrase** for Ubuntu root; separate unencrypted 2 GB `/boot`; Windows keeps BitLocker | Theft protection on both OSes; §7 handles the installer's LUKS gap |
 | D4 | Repo architecture | **Hybrid**: keep home-manager flake (user layer) + idempotent bash **system layer** + `hosts/` profiles | Ratified; WSL/Codespaces flows keep working |
 | D5 | Duo tooling | **Write our own (`zenduo`)**, using alesya-h & Fmstrat as prior art | Control + maintenance. Licensing in §11.2 — now *relaxed* for alesya-h (BSD-2-Clause verified), still strict for Fmstrat (GPL-3.0) |
 | D6 | Boot chain | **GRUB on the existing Windows ESP** (no format!), Secure Boot **stays ON**, `os-prober` enabled | Ubuntu's signed shim works with Secure Boot; one ESP avoids firmware confusion |
 | D7 | Kernel policy | **HWE 6.17 stack** (default on 24.04.4) + **GA 6.8 installed as fallback** | Newest well-tested kernel for this hardware; known-good escape hatch in GRUB |
-| D8 | Swap | 8 GB **swapfile inside encrypted root**; no hibernation | Machine is s2idle-only; hibernate isn't worth the complexity |
+| D8 | Swap | ~~8 GB~~ → **4 GB swapfile inside encrypted root** (as-built, small-disk Option B); no hibernation | Machine is s2idle-only; hibernate isn't worth the complexity |
 | D9 | Clock | Windows switched to **UTC RTC** via registry | More robust than making Linux use local time |
 | D10 | Desktop | **GNOME on Wayland** (Ubuntu default) | All Duo display tooling depends on Mutter's D-Bus API; KDE/X11 out of scope |
 
@@ -69,6 +69,8 @@ What this evolution **adds** (Phases F–H artifacts): `docs/` (this plan + rese
 ## 2. Verified research baseline
 
 Every load-bearing claim from the research reports, re-checked. ✅ = independently re-verified (date noted), 📄 = well-sourced in the research and consistent with other evidence (not independently re-verified), ❓ = could not confirm — the plan treats it as unknown and gates on hardware.
+
+> **Phase C gate ran 2026-07-22 — hardware ground truth is in.** V6, V9, V10, V12, V14 and V16 are confirmed ✅ on the machine (both panels work on 6.17; NVMe visible behind VMD; Wi-Fi survives detach). V8 confirmed in the expected direction (no native kbd-backlight, `hid_asus` not binding → the HID fallback is the operative path). Bonus findings beyond the table: native `platform_profile` support, an `asus_screenpad` backlight device, and `deep` listed in `mem_sleep`. Full readout: [INSTALL-LOG.md](INSTALL-LOG.md).
 
 | # | Claim | Status | Consequence for the plan |
 |---|-------|--------|--------------------------|

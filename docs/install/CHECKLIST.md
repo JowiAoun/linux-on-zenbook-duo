@@ -7,6 +7,13 @@ you, stop and read the referenced section before continuing.
 
 Legend: ⛔ = hard gate, do not pass on a failure.
 
+> **As-built (2026-07-22):** the real install deviated in known ways — single
+> 128 GB Ventoy stick with Win11 ISO replacing the recovery drive; shrink capped
+> at ~52 GB by `$MFT` (Option B ratified: `p6` ≈ 49.8 GiB, 4 GB swap); Ventoy's
+> one-time MOK enrollment under Secure Boot; wget fallback when the Ventoy
+> partition won't mount in its own live session; BT keyboard must be unpaired
+> from Windows before Ubuntu can see it. Details: [INSTALL-LOG.md](INSTALL-LOG.md).
+
 ## 0 · Before you start (off-machine)
 
 - [ ] BitLocker recovery key saved off-machine, ID matches `manage-bde -protectors -get C:` (§4 A1)
