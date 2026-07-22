@@ -75,12 +75,31 @@ panel_enabled() {
 
 backlight_devices() { ls /sys/class/backlight 2>/dev/null || true; }
 
-backlight_pct() { # <device>
-  local base="/sys/class/backlight/$1" cur max
+backlight_pct_num() { # <device> -> integer 0-100 (clamped) for machine use
+  local base="/sys/class/backlight/$1" cur max pct
   cur="$(cat "$base/brightness" 2>/dev/null)" || return 1
   max="$(cat "$base/max_brightness" 2>/dev/null)" || return 1
+  case "$cur$max" in *[!0-9]*) return 1 ;; esac
   [ "$max" -gt 0 ] || return 1
-  echo $(( cur * 100 / max ))
+  pct=$(( cur * 100 / max ))
+  [ "$pct" -gt 100 ] && pct=100
+  echo "$pct"
+}
+
+backlight_pct() { # <device> -> "NN%" or "cur/max raw" when values are implausible
+  local base="/sys/class/backlight/$1" cur max pct
+  cur="$(cat "$base/brightness" 2>/dev/null)" || return 1
+  max="$(cat "$base/max_brightness" 2>/dev/null)" || return 1
+  case "$cur$max" in *[!0-9]*) echo "?"; return 0 ;; esac
+  [ "$max" -gt 0 ] || { echo "?"; return 0; }
+  pct=$(( cur * 100 / max ))
+  # Some devices (seen: asus_screenpad on the UX8406MA) report brightness
+  # beyond max_brightness — show raw values instead of a nonsense percent.
+  if [ "$pct" -gt 100 ]; then
+    echo "${cur}/${max} raw"
+  else
+    echo "${pct}%"
+  fi
 }
 
 # ── doctor ───────────────────────────────────────────────────────────────────
@@ -160,7 +179,7 @@ cmd_doctor() {
   [ "$connected" = 2 ] && ck PASS 1 "both internal panels detected"
   local b
   for b in $(backlight_devices); do
-    ck INFO 0 "backlight device: $b ($(backlight_pct "$b" || echo '?')%)"
+    ck INFO 0 "backlight device: $b ($(backlight_pct "$b" || echo '?'))"
   done
 
   echo
@@ -352,7 +371,7 @@ cmd_sync_backlight() {
   guess_backlights "${1:-}" "${2:-}"
   [ -n "${DST_BL:-}" ] || { log "only one backlight device ($(backlight_devices | tr '\n' ' ')) — nothing to sync (VERIFY-ON-HW: bottom panel device name)"; return 1; }
   local pct
-  pct="$(backlight_pct "$SRC_BL")" || { log "cannot read $SRC_BL"; return 1; }
+  pct="$(backlight_pct_num "$SRC_BL")" || { log "cannot read $SRC_BL"; return 1; }
   sudo -n /usr/local/sbin/zenduo-helper backlight "$DST_BL" "$pct" \
     || { log "helper call failed — is the sudoers rule installed? (sudo make system HOST=zenbook-duo)"; return 1; }
   log "synced $SRC_BL ($pct%) -> $DST_BL"
@@ -469,7 +488,7 @@ cmd_status() {
   if [ -d "$NATIVE_LED" ]; then echo "kb-backlight: native LED available"; else echo "kb-backlight: HID fallback path"; fi
   local d
   for d in $(backlight_devices); do
-    echo "backlight: $d = $(backlight_pct "$d" || echo '?')%"
+    echo "backlight: $d = $(backlight_pct "$d" || echo '?')"
   done
   local f
   for f in /sys/class/power_supply/BAT*/charge_control_end_threshold; do
