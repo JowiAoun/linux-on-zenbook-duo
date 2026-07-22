@@ -188,3 +188,28 @@ surfaced two defects (fixed in the same PR):
 
 Config written by setup was correct (host=zenbook-duo, cloud off, ai on) — only
 the install invocation was broken. Re-run after pulling the fix.
+
+### Round 2 (same day): system layer + Nix green; two more defects at the end
+
+The re-run proved the pipeline: preflight → snapshot → apt → kernels → GRUB
+(all idempotent, "already present/set" on second pass) → Nix → home-manager.
+Two new failures, both fixed:
+
+- **Timeshift picked `/boot` as its snapshot destination.** `timeshift
+  --create` in first-run mode auto-selects a device; on this disk it chose the
+  2 GiB `p6` (/boot) and hit ENOSPC (it cleaned up its partial snapshot
+  itself). **Fix:** `90-timeshift.sh` now passes
+  `--snapshot-device "$(findmnt -n -o SOURCE /)" --scripted`, pinning
+  snapshots to the root filesystem. **Post-mortem check on the machine:**
+  `df -h /boot` and remove a stray `timeshift/` directory from /boot if one
+  remains.
+- **`vscode-extensions.postman.postman-for-vscode` is undefined in the pinned
+  nixpkgs** (Dec 2025). The line was latent-broken forever but unreachable:
+  WSL sets `programs.vscode.enable = !isWSL` → off, and Codespaces never
+  enabled node. The Duo is the first host with VS Code on — and home-manager's
+  vscode module forces every module's extension list **even when that module
+  is disabled** (`node = false` does not protect you). Removed the extension.
+  **Lesson recorded:** a bad `vscode-extensions.*` attr anywhere breaks every
+  vscode-enabled host; container-side validation against mirror inputs can
+  miss pin-specific removals — the laptop run is the only true test of the
+  lock file.
