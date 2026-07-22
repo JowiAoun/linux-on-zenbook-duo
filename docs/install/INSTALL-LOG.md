@@ -165,3 +165,26 @@ Disk: WD PC SN560 1TB (A14). Findings, in order encountered:
 
 **Install completed; system boots.** Phase E (system layer, Nix, dual-boot
 proof, keyboard re-pair) is next.
+
+## 2026-07-22 — Phase E (first run of the setup pipeline): two bugs found + fixed
+
+First real end-to-end run of `setup.sh` → `install.sh` on the installed OS
+surfaced two defects (fixed in the same PR):
+
+- **`install.sh` invoked `sudo make system`, but `make` is not installed on a
+  fresh Ubuntu desktop** (it ships in `build-essential`, which the system layer
+  itself installs — chicken-and-egg). The first install command failed with
+  "make: command not found" before anything ran. **Fix:** `install.sh` now calls
+  `sudo bash system/run.sh --host <profile>` directly; `make system` remains a
+  convenience alias for later interactive re-runs.
+- **`setup.sh` used `exec ./install.sh`**, so when that command failed under
+  `set -e`, the shell was replaced-then-gone and the terminal window closed with
+  no message ("pressed OK, window just closed"). **Fix:** `setup.sh` runs the
+  installer as a child process, tees output to `~/dome-install.log`, and prints
+  the last lines on failure — the window survives and errors are visible.
+- Also hardened: `install.sh` primes sudo up front with a clear banner, re-sources
+  the Nix profile so home-manager runs in the same shell, and prints phase
+  banners so progress is legible.
+
+Config written by setup was correct (host=zenbook-duo, cloud off, ai on) — only
+the install invocation was broken. Re-run after pulling the fix.
