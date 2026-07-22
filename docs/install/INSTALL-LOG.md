@@ -404,3 +404,16 @@ Confirmed on hardware + follow-up fixes:
   so only interactive use broke. Fixed by pinning the gi-using scripts
   (displayctl, set-tablet-mapping) to `PYGI=${DUO_PYGI:-/usr/bin/python3}`.
 - **kbd-backlight key is `5a c7`** (not the guessed 0xc4/0xc5) → mapped.
+- **`duo toggle` / screen-toggle key, backlight key: all confirmed working** on
+  both transports after the interpreter fix + service restart.
+- **Bottom-panel brightness synced to the wrong device.** Three backlights exist:
+  `intel_backlight` (top/eDP-1), `card1-eDP-2-backlight` (bottom/eDP-2, tracks the
+  real level), and `asus_screenpad` (reports a fixed 100%, doesn't track). sync's
+  "first non-source device" guess hit `asus_screenpad` alphabetically → nothing
+  visible changed. Fixed: `guess_backlights` now prefers `*eDP-2*`.
+- **Dock→bottom-off (#1) and undock→vertical stacking (#3) were the SAME
+  python3-gi bug:** the long-lived `duo-watch-displays` service had loaded the
+  pre-`PYGI` `duo` script, so its `displayctl top`/`both` calls silently failed.
+  `displayctl` already stacks eDP-2 below eDP-1 (`build_config`), so a service
+  restart fixes both. (Reminder: the "live from the checkout" watchers need a
+  `systemctl --user restart` — or reboot — to pick up edits to `duo/`.)

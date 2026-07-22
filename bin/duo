@@ -372,9 +372,18 @@ guess_backlights() { # sets SRC_BL and DST_BL
   DST_BL="${2:-}"
   if [ -z "$DST_BL" ]; then
     local d
+    # Prefer the bottom panel's native DRM backlight (card*-eDP-2-backlight).
+    # Other devices (e.g. asus_screenpad) report a brightness that does NOT
+    # track what's on screen, so syncing to them changes nothing visible.
     for d in $(backlight_devices); do
-      [ "$d" != "$SRC_BL" ] && DST_BL="$d" && break
+      case "$d" in *eDP-2*|*edp-2*) DST_BL="$d"; break ;; esac
     done
+    # Fall back to the first non-source device if there's no eDP-2 backlight.
+    if [ -z "$DST_BL" ]; then
+      for d in $(backlight_devices); do
+        [ "$d" != "$SRC_BL" ] && DST_BL="$d" && break
+      done
+    fi
   fi
 }
 
