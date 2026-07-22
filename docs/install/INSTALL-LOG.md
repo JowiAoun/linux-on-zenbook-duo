@@ -227,3 +227,16 @@ GA fallback kernel + git + home-manager generations. `install.sh` forwards
 machines. **Unblock used:** the system layer had already fully applied in round
 2, so the install was finished by running just the user layer directly:
 `nix run home-manager/master -- switch --flake "path:.#zenbook-duo" -b backup`.
+
+### Round 4: node buildEnv collision (two Node versions)
+
+home-manager downloaded everything then failed at the final `home-manager-path`
+derivation: `two given paths contain a conflicting subpath: nodejs-22.../node.bash
+and nodejs-20.../node.bash`. `modules/node.nix` pinned `nodejs_20` explicitly
+while `nodePackages.pnpm`/`typescript` propagated the default `nodejs_22` —
+two versions in one buildEnv collide on shared files (and would also collide on
+`bin/npm`). **Fix:** one Node version (`nodejs_22`) with **top-level** `pnpm`
+and `typescript` — `nodePackages.*` is additionally removed in newer nixpkgs,
+so this also prevents a future-update breakage. Verified by building
+`home.path` (node on, cloud/ai off, matching the laptop) to completion in the
+work session against current nixpkgs.
