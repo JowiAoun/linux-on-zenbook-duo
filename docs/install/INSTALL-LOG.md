@@ -213,3 +213,17 @@ Two new failures, both fixed:
   vscode-enabled host; container-side validation against mirror inputs can
   miss pin-specific removals — the laptop run is the only true test of the
   lock file.
+
+### Round 3: Timeshift snapshot made opt-in
+
+Even pinned to the root device (round 2 fix), `timeshift --create` sat at
+`0.00% complete` — a full rsync of the ~15 GB rootfs onto the same ~50 GB disk
+is slow, transiently doubles disk usage, and blocked the otherwise-idempotent
+install. **Fix:** the pre-change snapshot is now **opt-in** (`SNAPSHOT=1`;
+default off). Rationale in `system/90-timeshift.sh`: on this disk the snapshot
+is low-value (doesn't survive disk failure) and the real rollback nets are the
+GA fallback kernel + git + home-manager generations. `install.sh` forwards
+`SNAPSHOT` through sudo so `SNAPSHOT=1 ./install.sh ...` still works on roomy
+machines. **Unblock used:** the system layer had already fully applied in round
+2, so the install was finished by running just the user layer directly:
+`nix run home-manager/master -- switch --flake "path:.#zenbook-duo" -b backup`.
