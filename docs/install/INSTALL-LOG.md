@@ -240,3 +240,19 @@ and `typescript` — `nodePackages.*` is additionally removed in newer nixpkgs,
 so this also prevents a future-update breakage. Verified by building
 `home.path` (node on, cloud/ai off, matching the laptop) to completion in the
 work session against current nixpkgs.
+
+### Round 5: clear the home-manager activation warnings
+
+The install succeeded (duo watchers started, layout toggled); cleanup pass to
+silence the deprecation traces:
+- `programs.git.{userName,userEmail,extraConfig}` → `programs.git.settings.*`
+- `programs.vscode.{extensions,userSettings}` → `programs.vscode.profiles.default.*`
+  in modules/{node,python,cloud}.nix (home.nix already used profiles.default)
+- `news.display = "silent"` to drop the "N unread news items" line
+Verified by evaluating both host profiles against a home-manager new enough that
+the old names hard-error — no git/vscode warnings remain. The `xorg.*` rename
+warnings are deliberately left (they appear only on newer nixpkgs, not the
+current pin — renaming now would break the pin; deferred to a flake-update, G2).
+The apt "could not resolve" line was a transient DNS blip (packages already
+present) and the non-NixOS GPU notice is informational — run
+`non-nixos-gpu-setup` once to clear it.
