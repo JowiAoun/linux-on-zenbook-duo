@@ -467,15 +467,9 @@ cmd_watch_rotation() {
 }
 
 cmd_fn_probe() {
-  echo "fn-probe: press each Fn combo once (F1..F12, Fn+Esc); Ctrl-C when done."
-  if command -v libinput >/dev/null 2>&1 && [ "$(id -u)" = 0 ]; then
-    libinput debug-events --show-keycodes 2>/dev/null \
-      | grep --line-buffered KEYBOARD_KEY \
-      | tee /tmp/zenduo-fn-probe.log
-  else
-    echo "fn-probe: for keycode capture run 'sudo duo fn-probe' (libinput debug-events needs root)."
-    echo "fn-probe: alternatively watch GNOME react (brightness/volume OSD) and note which combos do nothing."
-  fi
+  # The Duo media/Fn keys are ASUS vendor usages hid-generic drops (V8), so they
+  # never reach the input layer — capture the RAW hidraw reports instead.
+  python3 "$LIB/fn_probe.py" | tee /tmp/zenduo-fn-probe.log
 }
 
 cmd_status() {
