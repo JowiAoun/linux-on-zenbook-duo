@@ -26,3 +26,15 @@ ensure_pkg \
   python3 \
   python3-gi \
   evtest
+
+# System-wide `duo` so it works from any shell AND under sudo (sudo resets PATH
+# to secure_path, which includes /usr/local/bin but never the user's home).
+# A symlink into the checkout keeps the tooling live-editable.
+DUO_LINK=/usr/local/bin/duo
+DUO_TARGET="$DOME_ROOT/duo/bin/duo"
+if [ "$(readlink -f "$DUO_LINK" 2>/dev/null || true)" = "$(readlink -f "$DUO_TARGET")" ]; then
+  log "duo symlink up to date: $DUO_LINK"
+else
+  log "linking $DUO_LINK -> $DUO_TARGET"
+  run ln -sfn "$DUO_TARGET" "$DUO_LINK"
+fi

@@ -2,7 +2,8 @@
 # 45-duo-udev.sh — [zenbook-duo hosts only] udev rules so the zenduo
 # tooling can run unprivileged:
 #   - hidraw access (uaccess ACL for the logged-in user) to the detachable
-#     keyboard 0b05:1b2c — used by the kb-backlight HID fallback
+#     keyboard — USB 0b05:1b2c AND Bluetooth 0b05:1b2d (same keyboard,
+#     different product id per transport) — used by kb-backlight/kb-init/fn-*
 #   - group-writable native kbd-backlight LED node, if/when the kernel
 #     grows one for this device (PLAN.md V8)
 #
@@ -25,9 +26,13 @@ tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 cat > "$tmp" <<'EOF'
 # zenduo (dome) — permissions for the ASUS Zenbook Duo detachable keyboard.
-# hidraw node: allow the active seat user to send HID feature reports
-# (keyboard backlight fallback) without root.
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0b05", ATTRS{idProduct}=="1b2c", TAG+="uaccess"
+# hidraw nodes: allow the active seat user to read reports / send HID feature
+# reports (kb-backlight, kb-init, fn-probe/fn-map) without root.
+# Match the parent HID device's kernel name (BUS:VID:PID.instance), which works
+# for both transports — USB attributes like idVendor don't exist on Bluetooth.
+#   USB:       0003:0B05:1B2C.*   Bluetooth: 0005:0B05:1B2D.*
+SUBSYSTEM=="hidraw", KERNELS=="0003:0B05:1B2C.*", TAG+="uaccess"
+SUBSYSTEM=="hidraw", KERNELS=="0005:0B05:1B2D.*", TAG+="uaccess"
 # Native keyboard-backlight LED (absent on current kernels; harmless if unmatched).
 ACTION=="add", SUBSYSTEM=="leds", KERNEL=="asus::kbd_backlight", RUN+="/bin/chmod 0666 /sys%p/brightness"
 EOF
