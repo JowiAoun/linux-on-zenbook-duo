@@ -123,8 +123,45 @@ advertises regardless of old bonds — unverified.)
    the keyboard → a PIN appears on the laptop screen → **type the PIN on the
    detached keyboard** and press Enter.
 
-## Phase D — pending
+## 2026-07-22 — Phase D (partitioning + install): completed, with amendments
 
-Runbook = PLAN.md §7 with these as-built amendments: `p6` ≈ **49.8 GiB** (not
-~203 GiB); pre-flight includes `manage-bde -status C:` (re-suspend if the
-3-boot window lapsed) and the BT unpair above; 4 GB swapfile in Phase E.
+Disk: WD PC SN560 1TB (A14). Findings, in order encountered:
+
+- **The factory layout has FIVE partitions, not four** — an extra hidden
+  273 MB fat32 recovery partition sits at the very end as `p5`. The plan's
+  "typical ASUS ship state" (p1–p4) was wrong for this unit. Consequences:
+  - New partitions were numbered **`p6` (/boot, 2 GiB ext4 `duo-boot`)** and
+    **`p7` (root, ~49.8 GiB)** — every §7 command shifts by one.
+  - **Trap: `p1` and `p5` are near-identical fat32 twins** (~273 MB each). The
+    real ESP is `p1` — flags `boot, esp`, at the *start* of the disk. Never
+    pick `p5` in an installer.
+- The freed space sits **between `p3` and `p4`**, not at the disk end. Plain
+  `parted print` hides gaps — `parted /dev/nvme0n1 print free` shows it.
+- **GParted only created the first of two queued partitions** on the first
+  Apply. Lesson: after Apply, verify with `lsblk` that *everything* you queued
+  exists — and check numbering *before* running any `cryptsetup` command.
+  (A `luksFormat` briefly aimed at `p6` during the confusion — zero damage,
+  the partition was brand-new and empty; `mkfs.ext4` restored intent.)
+- **MAJOR: Ubuntu 24.04.4's desktop installer cannot install into an existing
+  LUKS container in manual mode.** It lists the raw `crypto_LUKS` partition
+  but never offers the opened `/dev/mapper/*` device as a target, and the
+  Change dialog has no unlock. The plan's §7.3 pre-made-LUKS approach is a
+  dead end on this installer generation.
+  - **Amendment ratified (Plan E): the interim install is unencrypted** —
+    `p7` reformatted plain ext4, installed directly. D3 (LUKS root) is
+    deferred, not abandoned: it returns at the endgame full-disk reinstall
+    (the installer's own whole-disk LUKS flow works fine), or earlier via
+    in-place `cryptsetup reencrypt --encrypt` from a live USB (~20 min for
+    50 GB) if encryption becomes pressing. The chosen LUKS passphrase stays
+    stored for that day.
+  - Silver lining: with no crypttab needed, the **§7.6 chroot fix became
+    unnecessary** — the installer's stock output boots directly. os-prober
+    enablement moves to `make system` (already part of the system layer).
+- Installer UI notes: the format checkboxes in the partition list are not
+  directly clickable — all editing goes through the per-row **Change** dialog.
+  Formatting in-installer is redundant when the filesystems were freshly made
+  in the terminal moments before; assigning mount points suffices. The
+  installer auto-assigned `p1` → `/boot/efi` (unformatted) correctly.
+
+**Install completed; system boots.** Phase E (system layer, Nix, dual-boot
+proof, keyboard re-pair) is next.
