@@ -272,3 +272,27 @@ outside `/etc/shells` makes Wayland GDM eject the session.
 (so it's in /etc/shells) and `chsh` the login user to it the OS-correct way.
 (The ❯ prompt seen with .profile moved aside was starship-on-bash, not zsh —
 starship uses ❯ for both, so the machine was actually on bash.)
+
+### Round 7: chsh set, but terminals still opened bash — VTE reads `$SHELL`
+
+After Round 6 login worked, `getent passwd $USER` correctly showed `/usr/bin/zsh`
+(the `chsh` took), yet every terminal was still bash. The trap: **`$SHELL` is not
+your current shell** — it's a login-time tag the GNOME session captures once and
+hands to every child unchanged; neither bash nor zsh rewrites it. So `echo $SHELL`
+reading `/bin/bash` proves nothing. Ground-truth probes instead:
+```sh
+echo "zsh=${ZSH_VERSION:-no} bash=${BASH_VERSION:-no}"  # which shell parameters exist
+command ps -p $$ -o comm=                               # the real running binary
+```
+These confirmed the running shell genuinely was **bash** (not a stale tag).
+Root cause: **gnome-terminal (VTE) picks the shell it spawns from `$SHELL`, not
+from the passwd entry** — so `chsh` alone never reaches new terminals; VTE saw
+`$SHELL=/bin/bash` and launched bash. (`/proc/$PPID/comm` = `gnome-terminal-`,
+bash invoked *non-login*.)
+**Fix:** re-add `home.sessionVariables.SHELL`, but to the **apt** path
+`/usr/bin/zsh` — which `grep zsh /etc/shells` confirms is a registered valid
+shell, so it will *not* re-trigger the Round-6 GDM loop (that was caused by a
+`/nix/store` path, which is not in /etc/shells). Now passwd shell and `$SHELL`
+agree, and VTE spawns zsh.
+- Bonus: a stray `alias ps='pnpm start'` in the user's own `~/.bashrc` shadowed
+  `ps` — a pure red herring that vanishes on zsh (zsh never reads `~/.bashrc`).
