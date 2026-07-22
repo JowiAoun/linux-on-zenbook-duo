@@ -33,6 +33,17 @@ HANDSHAKE_TAIL = [0x41, 0x53, 0x55, 0x53, 0x20, 0x54, 0x65, 0x63,
                   0x68, 0x2E, 0x49, 0x6E, 0x63, 0x2E, 0x00]  # "ASUS Tech.Inc.\0"
 REPORT_IDS = [0x5A, 0x5D, 0x5E]
 
+# hid-asus.c asus_kbd_disable_oobe(): some ASUS keyboards ship in an
+# "out-of-box experience" state and ignore hotkeys until these feature reports
+# arrive (mainline sends them to the ProArt P16). The Duo keyboard behaves
+# exactly OOBE-like — plain F-keys, media layer dormant — so we try them too.
+OOBE_SEQUENCE = [
+    [0x5A, 0x05, 0x20, 0x31, 0x00, 0x08],
+    [0x5A, 0xBA, 0xC5, 0xC4],
+    [0x5A, 0xD0, 0x8F, 0x01],
+    [0x5A, 0xD0, 0x85, 0xFF],
+]
+
 
 def hidiocsfeature(length):
     # _IOC(_IOC_READ | _IOC_WRITE, 'H', 0x06, length)
@@ -75,6 +86,7 @@ def send_handshake():
         except OSError:
             continue
         ok_ids = []
+        oobe_ok = 0
         try:
             for report_id in REPORT_IDS:
                 report = bytes([report_id] + HANDSHAKE_TAIL)
@@ -83,12 +95,19 @@ def send_handshake():
                     ok_ids.append(report_id)
                 except OSError:
                     pass  # this interface doesn't own this report id — expected
+            for seq in OOBE_SEQUENCE:
+                report = bytes(seq)
+                try:
+                    fcntl.ioctl(fd, hidiocsfeature(len(report)), report)
+                    oobe_ok += 1
+                except OSError:
+                    pass
         finally:
             os.close(fd)
-        if ok_ids:
-            total_ok += len(ok_ids)
-            ids = " ".join(f"0x{r:02x}" for r in ok_ids)
-            print(f"kb_init: {node}: accepted {ids}")
+        if ok_ids or oobe_ok:
+            total_ok += len(ok_ids) + oobe_ok
+            ids = " ".join(f"0x{r:02x}" for r in ok_ids) or "none"
+            print(f"kb_init: {node}: handshake {ids}; oobe-disable {oobe_ok}/{len(OOBE_SEQUENCE)}")
 
     if total_ok:
         print("kb_init: handshake sent to every interface that accepted it — now press "
