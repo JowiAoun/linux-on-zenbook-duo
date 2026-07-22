@@ -321,3 +321,40 @@ single-user assumptions.)
    which login shell invoked it.
 2. `home.nix` bash+zsh init now source the **daemon** profile (daemon path first,
    `~/.nix-profile` fallback), so `nix` is on `$PATH` in interactive zsh too.
+
+### Round 9: Fn media keys — root-caused, deferred to upstream
+
+Goal: brightness (Fn+F5/F6), volume (Fn+F1/F2/F3), keyboard backlight (Fn+F4).
+Diagnosed with new `duo` tools — `fn-probe` (raw hidraw), `watch-input` (decoded
+evdev), `kb-init` (the ASUS handshake). Findings, in order:
+- **Bare F-row and Fn+F-row emit the identical standard HID usage.** `watch-input`
+  shows Fn+F5 == bare F5 == `MSC_SCAN 0x0007003e` → `KEY_F5`; likewise F6/F1..F4.
+  The keyboard's Fn layer is inert — the media functions are never generated.
+  `event26` ("Asus WMI hotkeys") stays silent for these, so they are not on the
+  ACPI path either.
+- **The vendor channel is alive for hardwired keys:** Fn+Esc → `5a 4e`, the
+  dedicated second-screen key → `5a 6a` (both on hidraw8). So hidraw works; the
+  F-row just doesn't emit vendor reports.
+- **The userspace handshake is insufficient.** Sending hid-asus's `asus_kbd_init`
+  "ASUS Tech.Inc." feature report (ids 0x5a/0x5d/0x5e) over hidraw HIDIOCSFEATURE
+  — first to hidraw4, then to *every* interface (hidraw8 accepted 0x5d/0x5e) — is
+  ACCEPTED but does NOT switch the F-row into media mode. The keyboard only enters
+  hotkey mode under a full `hid_asus` bind (probe + report-descriptor fixup), and
+  mainline `hid_asus` has no `0b05:1b2c` entry (PLAN.md V8).
+- **Upstream status:** support for *this* keyboard is work-in-progress (Luke Jones
+  / Josh Leivenzon — "hid-asus: use hid for brightness control" plus a Duo quirk),
+  **not merged to mainline**. So there is no finished driver to package, and a
+  DKMS build off today's mainline driver is a gamble (the Duo needs the special
+  handling that is exactly what is still being written).
+
+**Decision: DEFER.** Meanwhile: GNOME Quick Settings (top-right) sliders drive
+brightness and volume; `duo kb-backlight 0..3` drives the keyboard backlight.
+
+**Resume plan** (whichever comes first):
+- *Easiest:* once a kernel ships `hid_asus` with `0b05:1b2c`, it just works —
+  verify with `modinfo hid_asus | grep -i 1b2c` after a kernel bump. No repo change.
+- *DKMS gamble now:* build mainline `hid-asus.c` with
+  `{ HID_USB_DEVICE(USB_VENDOR_ID_ASUSTEK, 0x1b2c), QUIRK_ROG_NKEY_KEYBOARD }`,
+  sign for Secure Boot (reuse the Ventoy MOK), wire into `system/`. Uncertain.
+- The diagnostic tools stay in `duo/` for the resume: `kb-init`, `fn-probe`,
+  `fn-map`, `watch-input` (and `evtest`, installed by the system layer).
