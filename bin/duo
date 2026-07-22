@@ -33,6 +33,7 @@ usage: duo <command>
   watch-displays         daemon: keyboard docked -> top only; undocked -> both
   sync-backlight [src [dst]]   copy panel backlight percentage src -> dst
   watch-backlight [src [dst]]  daemon: keep dst backlight synced to src
+  kb-init                switch the keyboard into hotkey mode (enables Fn/media keys)
   kb-backlight <0-3>     keyboard backlight (native LED if present, else HID)
   bat-limit <20-100>     battery charge-limit threshold
   set-tablet-mapping     map each touchscreen to its own panel (GNOME 46+)
@@ -397,6 +398,12 @@ cmd_watch_backlight() {
 
 # ── keyboard backlight / battery ─────────────────────────────────────────────
 
+cmd_kb_init() {
+  # Send the ASUS init handshake so the keyboard emits Fn/media reports. The
+  # keyboard forgets it on re-enumeration, so this is safe to run repeatedly.
+  python3 "$LIB/kb_init.py"
+}
+
 cmd_kb_backlight() {
   local level="${1:-}"
   case "$level" in 0|1|2|3) ;; *) usage ;; esac
@@ -522,6 +529,7 @@ case "$cmd" in
   watch-displays)     cmd_watch_displays "$@" ;;
   sync-backlight)     cmd_sync_backlight "$@" ;;
   watch-backlight)    cmd_watch_backlight "$@" ;;
+  kb-init)            cmd_kb_init "$@" ;;
   kb-backlight)       cmd_kb_backlight "$@" ;;
   bat-limit)          cmd_bat_limit "$@" ;;
   set-tablet-mapping) cmd_set_tablet_mapping "$@" ;;
