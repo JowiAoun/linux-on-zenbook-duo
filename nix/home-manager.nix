@@ -20,6 +20,8 @@ let
   };
 in
 {
+  imports = [ ./touchpad.nix ];
+
   options.zenduo = {
     enable = lib.mkEnableOption "zenduo tooling for the ASUS Zenbook Duo (2024) UX8406MA";
 

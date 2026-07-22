@@ -417,3 +417,21 @@ Confirmed on hardware + follow-up fixes:
   `displayctl` already stacks eDP-2 below eDP-1 (`build_config`), so a service
   restart fixes both. (Reminder: the "live from the checkout" watchers need a
   `systemctl --user restart` — or reboot — to pick up edits to `duo/`.)
+
+## 2026-07-22 — Touchpad palm rejection (new PR)
+
+Typing on the docked keyboard, a resting palm easily brushed the touchpad and
+selected/deleted text — no Windows-style block. Cause: the touchpad+keyboard are
+one **external USB combo** device, and libinput's disable-while-typing only
+covers *internal* touchpads by default, so DWT never applied to it. GNOME's DWT
+key was already on (`org.gnome.desktop.peripherals.touchpad disable-while-typing`,
+default true) — it just had nothing to act on.
+
+**Fix:** `system/55-touchpad-quirks.sh` installs
+`/etc/libinput/local-overrides.quirks` declaring the combo layout
+(`AttrTPKComboLayout=below`, matched by vendor 0x0B05 + name), which makes
+libinput treat the external touchpad as an internal combo so DWT applies. Quirk
+from alesya-h/zenbook-duo-2024-ux8406ma-linux. `modules/zenbook-duo/touchpad.nix`
+also declares DWT=true (GNOME's UI hides that toggle). Toggle:
+`zenduo.palmRejection` (default on). libinput re-reads quirks at device init, so
+re-plug the keyboard or reboot to apply.
