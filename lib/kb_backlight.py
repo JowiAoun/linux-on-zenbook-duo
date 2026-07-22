@@ -39,8 +39,10 @@ def keyboard_hidraw_nodes():
                 text = f.read().upper()
         except OSError:
             continue
-        # HID_ID=0003:00000B05:00001B2C (USB) — match vendor and product.
-        if f":0000{VID}:0000{PID}" in text:
+        # HID_ID=0003:00000B05:00001B2C (USB). Detached, the keyboard
+        # re-enumerates on the Bluetooth bus (0005) with different ids/name,
+        # so match the ASUS vendor on ANY bus, or the model name.
+        if f":0000{VID}:" in text or "ZENBOOK DUO" in text:
             yield "/dev/" + uevent.split("/")[4]
 
 

@@ -41,13 +41,16 @@ def hidiocsfeature(length):
 
 
 def keyboard_hidraw_nodes():
+    # USB enumerates as 0003:00000B05:00001B2C, but detached the same keyboard
+    # re-enumerates on the Bluetooth bus (0005) with whatever ids/name BT
+    # advertises — so match the ASUS vendor id on ANY bus, or the model name.
     for uevent in sorted(glob.glob("/sys/class/hidraw/hidraw*/device/uevent")):
         try:
             with open(uevent) as f:
                 text = f.read().upper()
         except OSError:
             continue
-        if f":0000{VID}:0000{PID}" in text:
+        if f":0000{VID}:" in text or "ZENBOOK DUO" in text:
             yield "/dev/" + uevent.split("/")[4]
 
 

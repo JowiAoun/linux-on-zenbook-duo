@@ -25,23 +25,46 @@ VID = "0B05"
 PID = "1B2C"
 
 
-def keyboard_hidraw_nodes():
-    nodes = []
+def all_hidraw_devices():
+    """[(node, hid_id, name), ...] for every hidraw device present."""
+    out = []
     for uevent in sorted(glob.glob("/sys/class/hidraw/hidraw*/device/uevent")):
+        fields = {}
         try:
             with open(uevent) as f:
-                text = f.read().upper()
+                for line in f.read().splitlines():
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        fields[k] = v
         except OSError:
             continue
-        if f":0000{VID}:0000{PID}" in text:
-            nodes.append("/dev/" + uevent.split("/")[4])
+        out.append(("/dev/" + uevent.split("/")[4],
+                    fields.get("HID_ID", "?"), fields.get("HID_NAME", "?")))
+    return out
+
+
+def keyboard_hidraw_nodes():
+    # USB enumerates as 0003:00000B05:00001B2C, but detached the same keyboard
+    # re-enumerates on the Bluetooth bus (0005) with whatever ids/name BT
+    # advertises — so match the ASUS vendor id on ANY bus, or the model name.
+    nodes = []
+    for node, hid_id, name in all_hidraw_devices():
+        blob = f"{hid_id} {name}".upper()
+        if f":0000{VID}:" in blob or "ZENBOOK DUO" in blob:
+            nodes.append(node)
     return nodes
 
 
 def main():
     nodes = keyboard_hidraw_nodes()
     if not nodes:
-        print("fn_probe: keyboard 0b05:1b2c not on hidraw (attached? docked?)", file=sys.stderr)
+        print("fn_probe: Zenbook Duo keyboard not found on hidraw (USB or BT).", file=sys.stderr)
+        devs = all_hidraw_devices()
+        if devs:
+            print("fn_probe: hidraw devices present (share this if the keyboard IS connected):",
+                  file=sys.stderr)
+            for node, hid_id, name in devs:
+                print(f"  {node}  {hid_id}  {name}", file=sys.stderr)
         return 1
 
     fds = {}

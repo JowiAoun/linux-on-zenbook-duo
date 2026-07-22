@@ -77,6 +77,9 @@ def map_path():
 
 
 def keyboard_hidraw_nodes():
+    # USB enumerates as 0003:00000B05:00001B2C, but detached the same keyboard
+    # re-enumerates on the Bluetooth bus (0005) with whatever ids/name BT
+    # advertises — so match the ASUS vendor id on ANY bus, or the model name.
     nodes = []
     for uevent in sorted(glob.glob("/sys/class/hidraw/hidraw*/device/uevent")):
         try:
@@ -84,7 +87,7 @@ def keyboard_hidraw_nodes():
                 text = f.read().upper()
         except OSError:
             continue
-        if f":0000{VID}:0000{PID}" in text:
+        if f":0000{VID}:" in text or "ZENBOOK DUO" in text:
             nodes.append("/dev/" + uevent.split("/")[4])
     return nodes
 
@@ -182,7 +185,7 @@ def show_map():
 def run_wizard():
     nodes = keyboard_hidraw_nodes()
     if not nodes:
-        print("fn-map: keyboard 0b05:1b2c not on hidraw - is it docked?", file=sys.stderr)
+        print("fn-map: Zenbook Duo keyboard not found on hidraw (USB or BT).", file=sys.stderr)
         return 1
 
     fds = {}
