@@ -38,7 +38,7 @@ usage: duo <command>
   set-tablet-mapping     map each touchscreen to its own panel (GNOME 46+)
   watch-rotation         daemon: follow accelerometer orientation (EXPERIMENTAL)
   fn-probe               interactively inventory what the Fn keys emit
-  fn-map                 guided wizard: press each Fn key -> build a key map
+  fn-map [--show]        guided wizard: press each Fn key -> build a key map (--show: print it)
   log                    follow zenduo journal messages
 EOF
   exit 64
@@ -476,8 +476,8 @@ cmd_fn_probe() {
 cmd_fn_map() {
   # Friendly companion to fn-probe: names each Fn key, waits for the press,
   # captures its raw HID report, and writes ~/.config/zenduo/fn-map.json for a
-  # future `duo watch-fn` to consume.
-  python3 "$LIB/fn_map.py"
+  # future `duo watch-fn` to consume. `duo fn-map --show` prints the saved map.
+  python3 "$LIB/fn_map.py" "$@"
 }
 
 cmd_status() {
