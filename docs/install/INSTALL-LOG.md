@@ -296,3 +296,8 @@ shell, so it will *not* re-trigger the Round-6 GDM loop (that was caused by a
 agree, and VTE spawns zsh.
 - Bonus: a stray `alias ps='pnpm start'` in the user's own `~/.bashrc` shadowed
   `ps` — a pure red herring that vanishes on zsh (zsh never reads `~/.bashrc`).
+- Follow-on once truly on zsh: the prompt rendered `user@host` (blue) instead of
+  Starship's `@ user … ❯`. Cause: a leftover `prompt adam1` in the zsh init,
+  which loads *after* Starship and clobbers it — bash never ran that line, so it
+  only surfaced on zsh. Fix: delete the `promptinit`/`prompt adam1` lines; the
+  oh-my-zsh theme was already blanked "to use Starship", so Starship owns it.
