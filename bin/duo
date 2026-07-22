@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # duo — zenduo CLI for the ASUS Zenbook Duo (2024) UX8406MA.
 #
-# Read-only anywhere (incl. a live USB):  doctor, status, fn-probe, log
+# Read-only anywhere (incl. a live USB):  doctor, status, fn-probe, fn-map, log
 # Needs a GNOME session:                  top/bottom/both/toggle, watch-displays,
 #                                         set-tablet-mapping, watch-rotation
 # May need the root helper / udev rule:   sync-backlight, kb-backlight, bat-limit
@@ -38,6 +38,7 @@ usage: duo <command>
   set-tablet-mapping     map each touchscreen to its own panel (GNOME 46+)
   watch-rotation         daemon: follow accelerometer orientation (EXPERIMENTAL)
   fn-probe               interactively inventory what the Fn keys emit
+  fn-map                 guided wizard: press each Fn key -> build a key map
   log                    follow zenduo journal messages
 EOF
   exit 64
@@ -472,6 +473,13 @@ cmd_fn_probe() {
   python3 "$LIB/fn_probe.py" | tee /tmp/zenduo-fn-probe.log
 }
 
+cmd_fn_map() {
+  # Friendly companion to fn-probe: names each Fn key, waits for the press,
+  # captures its raw HID report, and writes ~/.config/zenduo/fn-map.json for a
+  # future `duo watch-fn` to consume.
+  python3 "$LIB/fn_map.py"
+}
+
 cmd_status() {
   echo "panels:"
   local p
@@ -506,6 +514,7 @@ case "$cmd" in
   set-tablet-mapping) cmd_set_tablet_mapping "$@" ;;
   watch-rotation)     cmd_watch_rotation "$@" ;;
   fn-probe)           cmd_fn_probe "$@" ;;
+  fn-map)             cmd_fn_map "$@" ;;
   log)                journalctl --user -t "$TAG" -f ;;
   *)                  usage ;;
 esac

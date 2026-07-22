@@ -20,7 +20,8 @@ duo kb-backlight 0..3      keyboard backlight — native LED if the kernel has i
 duo bat-limit 20..100      battery charge-limit threshold (sysfs / root helper)
 duo set-tablet-mapping     pin each ELAN touchscreen to its own panel (GNOME 46+)
 duo watch-rotation         EXPERIMENTAL: log accelerometer orientation events
-duo fn-probe               inventory what the Fn keys actually emit
+duo fn-probe               inventory what the Fn keys actually emit (raw hex)
+duo fn-map                 guided wizard: press each Fn key -> build a key->report map
 duo log                    follow zenduo journal messages
 ```
 
