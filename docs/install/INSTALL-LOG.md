@@ -358,3 +358,36 @@ brightness and volume; `duo kb-backlight 0..3` drives the keyboard backlight.
   sign for Secure Boot (reuse the Ventoy MOK), wire into `system/`. Uncertain.
 - The diagnostic tools stay in `duo/` for the resume: `kb-init`, `fn-probe`,
   `fn-map`, `watch-input` (and `evtest`, installed by the system layer).
+
+### Round 10: BREAKTHROUGH — media layer enabled over Bluetooth; `watch-fn` born
+
+Round 9's "defer" cracked open. Facts established since:
+- **Bluetooth identity differs:** detached, the keyboard re-enumerates as
+  `0005:00000B05:00001B2D` ("ASUS Zenbook Duo Keyboard", `hid-generic` +
+  `hid-multitouch`). USB is `1b2c`, BT is `1b2d` — neither is in this kernel's
+  `hid_asus` (`modinfo` device table: `1b4c` exists, ours don't).
+- Two of our own defects fixed along the way: the udev uaccess rule matched USB
+  attributes only (BT hidraw was permission-denied) → now matches the parent HID
+  kernel name for both `0003:0B05:1B2C.*` and `0005:0B05:1B2D.*`; and `sudo duo`
+  failed (user-only PATH) → the system layer links `/usr/local/bin/duo` into the
+  checkout.
+- **The unlock:** `duo kb-init` — hid-asus's `asus_kbd_init` "ASUS Tech.Inc."
+  handshake **plus** its `asus_kbd_disable_oobe` sequence — sent **over the BT
+  link** flips the media layer ON. Confirmed captures: bare F5 → `5a 10`
+  (brightness-down), Fn+F5 → plain F5, Fn+Esc → `5a 4e`. After init the layers
+  are media-by-default (bare = media, Fn+key = F1..F12) and the keyboard's
+  report format changes (`02`-prefixed key reports) — the init genuinely
+  reconfigures the device. Volume/mute arrive as standard consumer-page usages
+  and work **natively**; only ASUS vendor codes need help.
+- Attached (USB) with the OOBE sequence: **untested at time of writing** — the
+  OOBE step was added after the keyboard went to BT. Same daemon covers it if
+  it behaves the same.
+
+**Fix shipped:** `duo watch-fn` — daemon that polls for the keyboard's hidraw
+nodes (either transport), re-sends the init whenever the node set changes (the
+keyboard forgets hotkey mode on re-enumeration), and dispatches the `5a` codes:
+brightness → GNOME settings-daemon `Screen.StepUp/StepDown` D-Bus (native OSD),
+second-screen key (`5a 6a`) → `duo toggle`, kbd-backlight → `duo kb-backlight`
+cycle. `~/.config/zenduo/fn-map.json` (from `duo fn-map`) overrides/extends the
+code table. Runs as the `duo-watch-fn` systemd user service (zenduo module,
+default-on).

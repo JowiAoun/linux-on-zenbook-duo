@@ -65,7 +65,7 @@ def keyboard_hidraw_nodes():
             yield "/dev/" + uevent.split("/")[4]
 
 
-def send_handshake():
+def send_handshake(hint=True):
     nodes = list(keyboard_hidraw_nodes())
     if not nodes:
         print("kb_init: keyboard 0b05:1b2c not found on hidraw (docked?)", file=sys.stderr)
@@ -110,8 +110,9 @@ def send_handshake():
             print(f"kb_init: {node}: handshake {ids}; oobe-disable {oobe_ok}/{len(OOBE_SEQUENCE)}")
 
     if total_ok:
-        print("kb_init: handshake sent to every interface that accepted it — now press "
-              "Fn+F5 etc. and watch `duo fn-probe` / `duo watch-input`.")
+        if hint:
+            print("kb_init: handshake sent to every interface that accepted it — now press "
+                  "Fn+F5 etc. and watch `duo fn-probe` / `duo watch-input`.")
         return 0
     if denied:
         print("kb_init: permission denied on hidraw — run with sudo, or install the "

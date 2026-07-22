@@ -34,6 +34,7 @@ usage: duo <command>
   sync-backlight [src [dst]]   copy panel backlight percentage src -> dst
   watch-backlight [src [dst]]  daemon: keep dst backlight synced to src
   kb-init                switch the keyboard into hotkey mode (enables Fn/media keys)
+  watch-fn               daemon: init keyboard on connect + act on media keys
   kb-backlight <0-3>     keyboard backlight (native LED if present, else HID)
   bat-limit <20-100>     battery charge-limit threshold
   set-tablet-mapping     map each touchscreen to its own panel (GNOME 46+)
@@ -404,6 +405,12 @@ cmd_kb_init() {
   python3 "$LIB/kb_init.py"
 }
 
+cmd_watch_fn() {
+  # Daemon: re-init the keyboard whenever it (re)connects and turn its 0x5a
+  # vendor reports into actions (brightness OSD, panel toggle, kb backlight).
+  python3 "$LIB/watch_fn.py"
+}
+
 cmd_kb_backlight() {
   local level="${1:-}"
   case "$level" in 0|1|2|3) ;; *) usage ;; esac
@@ -530,6 +537,7 @@ case "$cmd" in
   sync-backlight)     cmd_sync_backlight "$@" ;;
   watch-backlight)    cmd_watch_backlight "$@" ;;
   kb-init)            cmd_kb_init "$@" ;;
+  watch-fn)           cmd_watch_fn "$@" ;;
   kb-backlight)       cmd_kb_backlight "$@" ;;
   bat-limit)          cmd_bat_limit "$@" ;;
   set-tablet-mapping) cmd_set_tablet_mapping "$@" ;;

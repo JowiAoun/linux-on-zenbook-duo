@@ -205,8 +205,11 @@ def run_wizard():
         return 1
 
     print(f"fn-map: reading {', '.join(sorted(fds.values()))}", file=sys.stderr)
-    print("HOLD Fn while pressing each 'Fn+Fx' key (the bare key is just F1..F12).", file=sys.stderr)
-    print("s+Enter = skip a key,  q+Enter = stop early.\n", file=sys.stderr)
+    print("Run `duo kb-init` first. After init the MEDIA layer is the BARE key press\n"
+          "(hold Fn to get plain F1..F12 instead) — so press each key WITHOUT Fn.\n"
+          "Volume/mute may already work natively (consumer-page, not 0x5a): if a key\n"
+          "does its job but captures nothing here, that's fine — skip it with s+Enter.\n"
+          "s+Enter = skip a key,  q+Enter = stop early.\n", file=sys.stderr)
 
     mapping = {}
     seen = {}  # report hex -> action, to flag two keys that look identical

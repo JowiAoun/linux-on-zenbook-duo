@@ -17,6 +17,7 @@ duo watch-displays         daemon: keyboard docked -> top only; undocked -> both
 duo sync-backlight         copy the top panel's backlight percentage to the bottom panel
 duo watch-backlight        daemon: keep the bottom backlight synced
 duo kb-init                send the ASUS handshake to enable Fn/media-key reporting
+duo watch-fn               daemon: re-init keyboard on connect + act on media keys
 duo kb-backlight 0..3      keyboard backlight — native LED if the kernel has it, else HID
 duo bat-limit 20..100      battery charge-limit threshold (sysfs / root helper)
 duo set-tablet-mapping     pin each ELAN touchscreen to its own panel (GNOME 46+)

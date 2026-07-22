@@ -47,6 +47,12 @@ in
       description = "Experimental rotation watcher (logs only for now).";
     };
 
+    watchFn = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Init the keyboard's hotkey mode on connect and act on its media keys (brightness, panel toggle, kb backlight). Mainline hid-asus lacks this device, so this daemon stands in for it.";
+    };
+
     batteryLimit = lib.mkOption {
       type = lib.types.nullOr (lib.types.ints.between 20 100);
       default = null;
@@ -66,6 +72,9 @@ in
       }
       // lib.optionalAttrs cfg.watchRotation {
         duo-watch-rotation = watcher "watch-rotation" "follow accelerometer orientation (experimental)";
+      }
+      // lib.optionalAttrs cfg.watchFn {
+        duo-watch-fn = watcher "watch-fn" "init keyboard hotkey mode + act on media keys";
       }
       // lib.optionalAttrs (cfg.batteryLimit != null) {
         duo-bat-limit = {
