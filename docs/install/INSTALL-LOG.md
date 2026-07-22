@@ -301,3 +301,23 @@ agree, and VTE spawns zsh.
   which loads *after* Starship and clobbers it — bash never ran that line, so it
   only surfaced on zsh. Fix: delete the `promptinit`/`prompt adam1` lines; the
   oh-my-zsh theme was already blanked "to use Starship", so Starship owns it.
+
+### Round 8: shell switch broke `install.sh`'s Nix detection
+
+Next `./setup.sh` (now launched from zsh) suddenly tried to **re-install Nix**,
+then aborted: `I need to back up /etc/bash.bashrc … but the latter already
+exists` — the installer's own leftover from the *first, successful* install.
+Root cause: `install.sh` detected Nix with `command -v nix`, and `nix` is only on
+`$PATH` once a shell sources the daemon profile. bash gets that from
+`/etc/bash.bashrc`; **Ubuntu's zsh never sources it**, so `setup.sh` launched from
+zsh handed `install.sh` a `nix`-less `$PATH`, it concluded Nix was missing, and
+re-ran the installer. (The multi-user profile lives at
+`/nix/var/nix/profiles/default/…/nix-daemon.sh`, *not* `~/.nix-profile` — so the
+old `command -v` and the old `~/.nix-profile/…/nix.sh` source line were both
+single-user assumptions.)
+**Fix (two parts):**
+1. `install.sh` now sources the daemon profile itself and detects Nix by the
+   on-disk binary (`/nix/var/nix/profiles/default/bin/nix`), so it is immune to
+   which login shell invoked it.
+2. `home.nix` bash+zsh init now source the **daemon** profile (daemon path first,
+   `~/.nix-profile` fallback), so `nix` is on `$PATH` in interactive zsh too.
