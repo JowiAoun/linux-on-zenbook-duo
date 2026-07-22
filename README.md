@@ -62,6 +62,7 @@ fallback talks straight to `/dev/hidraw*`.
 | Thing | Value |
 |-------|-------|
 | Keyboard (USB pogo + BT) | `0b05:1b2c` |
+| Keyboard BT pairing mode | Detached + switch on + **hold `F10` 4–5 s** until the LED flashes blue rapidly (switch alone does not advertise) |
 | Top digitizer | ELAN9008 `04f3:4259` → `eDP-1` |
 | Bottom digitizer | ELAN9009 `04f3:42ec` → `eDP-2` |
 | kb-backlight HID feature report | `{0x5a, 0xba, 0xc5, 0xc4, level}` (from mainline `hid-asus.c`) |

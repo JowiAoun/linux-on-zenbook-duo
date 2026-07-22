@@ -104,13 +104,24 @@ the same PR as this log.
 
 ### Bluetooth keyboard
 
-Keyboard never appeared in scans from the live session — diagnosis: **still
-bonded to Windows**, so it doesn't advertise to new hosts. Resolution: remove
-the pairing in Windows (Settings → Bluetooth & devices → Remove device), then
-pair from Ubuntu.
+Keyboard never appeared in scans from the live session — flipping the power
+switch alone does **not** advertise the keyboard (research had implied it
+would). Two things changed before success: the stale Windows pairing was
+removed (Settings → Bluetooth & devices → Remove device), and — the key
+discovery — **pairing mode must be forced with an F10 long-press**. (The F10
+long-press is likely sufficient on its own, since pairing mode normally
+advertises regardless of old bonds — unverified.)
 
-**Exact working pairing sequence: _[PENDING — to be filled in verbatim from
-Jay's notes]_**
+**Exact working sequence (Jay, 2026-07-22):**
+
+1. **Detach the keyboard** — physically slide it off the laptop chassis.
+2. **Enable Bluetooth on the keyboard** — slide the physical switch on the
+   left side (near the front edge) to on (green marker visible).
+3. **Enter pairing mode** — **press and hold `F10` on the detached keyboard
+   for 4–5 seconds** until the indicator light flashes blue rapidly.
+4. **Pair on Ubuntu** — Settings → Bluetooth → Add/Pair New Device → select
+   the keyboard → a PIN appears on the laptop screen → **type the PIN on the
+   detached keyboard** and press Enter.
 
 ## Phase D — pending
 
