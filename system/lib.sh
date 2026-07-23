@@ -71,6 +71,14 @@ config_flag() {
   [ "$v" = true ]
 }
 
+# The value of a quoted string field in user-config.nix, or empty. Same
+# read-the-file-not-the-environment reasoning as config_flag.
+config_str() {
+  [ -f "$DOME_ROOT/user-config.nix" ] || return 0
+  sed -nE "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"([^\"]*)\";.*/\1/p" \
+    "$DOME_ROOT/user-config.nix" | head -n1
+}
+
 # The human user the duo tooling belongs to:
 # user-config.nix username > the user who invoked sudo > failure.
 target_user() {
