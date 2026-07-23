@@ -90,6 +90,7 @@ class Watcher:
         self._raw = None        # last raw sample
         self._streak = 0        # consecutive identical raw samples
         self._proxy = None
+        self._system_bus = None  # MUST be kept: see run(), it owns the logind subscription
         self._timer = 0
         self._quiet_until = 0.0
         self._applies = []      # monotonic timestamps, for storm detection
@@ -281,7 +282,12 @@ class Watcher:
             log(f"{e} — continuing on the poll alone")
 
         try:
-            Gio.bus_get_sync(Gio.BusType.SYSTEM, None).signal_subscribe(
+            # Keep the connection alive for the lifetime of the daemon. Letting
+            # it fall out of scope silently unsubscribes when Python collects
+            # the wrapper — the subscription dies with the connection object
+            # and resume events stop arriving, with nothing logged either way.
+            self._system_bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+            self._system_bus.signal_subscribe(
                 "org.freedesktop.login1", "org.freedesktop.login1.Manager",
                 "PrepareForSleep", "/org/freedesktop/login1", None,
                 Gio.DBusSignalFlags.NONE, self.on_prepare_for_sleep)
