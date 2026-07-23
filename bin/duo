@@ -38,7 +38,8 @@ usage: duo <command>
   top|bottom|both        enable that panel set (refuses all-off; pauses the
                          dock policy until the keyboard docks/undocks)
   toggle                 bottom panel on <-> off
-  watch-displays         daemon: keyboard docked -> top only; undocked -> both
+  watch-displays         daemon: bottom panel off while the keyboard is docked,
+                         back on when it comes off. Nothing else is touched.
   apply-displays         enforce that policy once now (drops any manual override)
   sync-backlight [src [dst]]   copy panel backlight percentage src -> dst
   watch-backlight [src [dst]]  daemon: keep dst backlight synced to src
@@ -561,7 +562,7 @@ cmd_status() {
   if ov="$(override_active)" && [ -n "$ov" ]; then
     echo "dock policy: PAUSED by a manual layout ($ov) — 'duo apply-displays' resumes it"
   else
-    echo "dock policy: active (docked -> top only, undocked -> both)"
+    echo "dock policy: active (bottom panel off while docked, on when undocked)"
   fi
   if [ -d "$NATIVE_LED" ]; then echo "kb-backlight: native LED available"; else echo "kb-backlight: HID fallback path"; fi
   local d

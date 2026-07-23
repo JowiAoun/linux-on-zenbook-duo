@@ -164,6 +164,41 @@ def overlaps(a, b):
     return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
 
 
+def touches(a, b):
+    """True if two rectangles share a border of non-zero length, or overlap."""
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    if overlaps(a, b):
+        return True
+    if (ax + aw == bx or bx + bw == ax) and min(ay + ah, by + bh) > max(ay, by):
+        return True
+    if (ay + ah == by or by + bh == ay) and min(ax + aw, bx + bw) > max(ax, bx):
+        return True
+    return False
+
+
+def contiguous(rects):
+    """True if every rectangle is reachable from the first by shared borders.
+
+    Mutter rejects a layout whose logical monitors are not all adjacent
+    ("Logical monitors not adjacent"), which is easy to produce by accident:
+    keep an external monitor at the coordinates it had while two panels were
+    stacked above it, then disable one of those panels, and the gap left
+    behind strands it.
+    """
+    if len(rects) < 2:
+        return True
+    seen = {0}
+    queue = [0]
+    while queue:
+        i = queue.pop()
+        for j in range(len(rects)):
+            if j not in seen and touches(rects[i], rects[j]):
+                seen.add(j)
+                queue.append(j)
+    return len(seen) == len(rects)
+
+
 def build_config(monitors, logical_monitors, properties, want, internal=(TOP, BOTTOM)):
     """Build the ApplyMonitorsConfig logical-monitor list enabling exactly
     the connectors in `want`.
@@ -172,6 +207,12 @@ def build_config(monitors, logical_monitors, properties, want, internal=(TOP, BO
     the position they already had (so a desk arrangement survives every
     dock/undock), unless that position would collide with the new internal
     stack — then they are appended below it.
+
+    Two rules Mutter enforces on the result, both of which it rejects outright:
+    the layout must start at the origin, and every monitor must be adjacent to
+    another. Preserved external coordinates can violate the second one whenever
+    the internal stack shrinks, so a layout that comes out disconnected is
+    rebuilt as a plain vertical stack rather than handed over to be refused.
     """
     if not want:
         raise DisplayCtlError("REFUSED — zero enabled panels is never allowed (R10)", 2)
@@ -219,6 +260,36 @@ def build_config(monitors, logical_monitors, properties, want, internal=(TOP, BO
         logicals.append((x, ext_y, scale, transform, connector == primary_connector,
                          [(connector, mode["id"], {})]))
         placed.append((x, ext_y, w, h))
+
+    if not contiguous(placed):
+        # A preserved external position left a hole. Relative placement cannot
+        # be salvaged in general, so fall back to the one arrangement that is
+        # always valid: everything stacked at x=0, in `want` order.
+        logicals = []
+        y = 0
+        for connector in ([c for c in want if c in internal]
+                          + [c for c in want if c not in internal]):
+            mon = monitors[connector]
+            mode = pick_mode(mon)
+            prev = layout.get(connector)
+            scale = prev["scale"] if prev else mode["preferred_scale"]
+            transform = prev["transform"] if prev else 0
+            _w, h = logical_size(mode, scale, layout_mode, transform)
+            logicals.append((0, y, scale, transform, connector == primary_connector,
+                             [(connector, mode["id"], {})]))
+            y += h
+
+    # Mutter refuses any layout whose top-left corner is not the origin
+    # ("Logical monitors positions are offset"). Externals keep the coordinates
+    # they already had, so disabling whatever sat at 0,0 — turning the panels
+    # off and leaving an external that lives at x=1920 — would strand the whole
+    # layout off-origin. Translate it back as a block, which preserves every
+    # monitor's position *relative* to the others.
+    min_x = min(lm[0] for lm in logicals)
+    min_y = min(lm[1] for lm in logicals)
+    if min_x or min_y:
+        logicals = [(lx - min_x, ly - min_y, scale, transform, primary, mons)
+                    for (lx, ly, scale, transform, primary, mons) in logicals]
     return logicals
 
 

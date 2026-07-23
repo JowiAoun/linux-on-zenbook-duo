@@ -39,11 +39,14 @@ in
       type = lib.types.bool;
       default = true;
       description = ''
-        Keep the panel layout matching the keyboard: docked -> top panel only,
-        undocked -> both. The daemon re-checks after resume, monitor hotplug and
-        any other Mutter reconfiguration, not just on dock/undock, so the bottom
-        panel cannot stay lit under a docked keyboard. `duo apply-displays`
-        enforces it once by hand.
+        Keep the bottom panel in step with the keyboard: off while docked (the
+        keyboard is lying on it), back on when it comes off. The daemon
+        re-checks after resume, monitor hotplug and any other Mutter
+        reconfiguration, not just on dock/undock, so the bottom panel cannot
+        stay lit under a docked keyboard. It governs that one panel only — the
+        top panel, external monitors and their arrangement stay yours, so Win+P
+        layouts like "External Only" survive. `duo apply-displays` enforces the
+        policy once by hand.
       '';
     };
 

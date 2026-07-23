@@ -14,7 +14,8 @@ duo status                 quick glance: panels, keyboard, backlight, battery li
 duo top|bottom|both        enable that panel set (refuses to disable everything);
                            pauses the dock policy until the keyboard docks/undocks
 duo toggle                 bottom panel on <-> off
-duo watch-displays         daemon: keyboard docked -> top only; undocked -> both panels
+duo watch-displays         daemon: bottom panel off while the keyboard is docked, back
+                           on when it comes off — nothing else in the layout is touched
 duo apply-displays         enforce that policy once, now (drops any manual override)
 duo sync-backlight         copy the top panel's backlight percentage to the bottom panel
 duo watch-backlight        daemon: keep the bottom backlight synced
@@ -57,7 +58,17 @@ duo log                    follow zenduo journal messages
    an edge-triggered watcher had nothing to react to. A deliberate
    `duo top/bottom/both/toggle` outranks the policy until the keyboard is next
    docked or undocked, so manual choices and the second-screen Fn key stick.
-6. **Minimal privilege:** the only root path is `/usr/local/sbin/zenduo-helper`
+6. **Govern one panel, not the layout:** the daemon decides exactly one thing —
+   whether the *bottom* panel is on. The top panel, external monitors, their
+   positions, scales and which one is primary stay the user's. Stating the
+   policy as "docked -> enable exactly [top]" also asserted the top panel ON,
+   which snapped the laptop screen back on whenever Win+P *External Only* was
+   chosen while docked. The bottom-off rule is enforced continuously (the
+   keyboard is lying on that screen); turning it back on happens only at the
+   undock *edge*, so an undocked layout the user chose is never overridden.
+   Mirrored layouts are left alone entirely — one logical monitor per connector
+   would silently un-mirror them.
+7. **Minimal privilege:** the only root path is `/usr/local/sbin/zenduo-helper`
    (installed by `system/50-duo-sudoers.sh`), which accepts exactly two
    validated verbs. The HID backlight fallback runs unprivileged via a udev
    uaccess rule on `/dev/hidraw*`.

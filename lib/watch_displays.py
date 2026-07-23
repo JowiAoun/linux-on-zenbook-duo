@@ -1,9 +1,23 @@
 #!/usr/bin/env python3
-"""watch-displays — keep the panel layout matching the keyboard dock state.
+"""watch-displays — keep the bottom panel in step with the keyboard.
 
-Policy: **keyboard docked -> top panel only; undocked -> both panels.**
-External monitors are never touched; whatever is enabled stays enabled, in
-place.
+Policy, and deliberately no more than this:
+
+  * **while docked, the bottom panel is off** — the keyboard is lying on it, so
+    nothing shown there can be seen. Enforced continuously.
+  * **undocking turns it back on** — that edge is the moment the screen becomes
+    usable again. Enforced once, at the transition.
+
+Everything else in the layout belongs to the user: the top panel, external
+monitors, their positions, scales, and which one is primary. The daemon reads
+them, preserves them, and never asserts them. An earlier version described the
+policy as "docked -> enable exactly [top]", which also switched the top panel
+ON — so choosing "External Only" from Win+P while docked snapped the laptop
+screen straight back on. Governing one panel instead of the whole layout is
+what makes External Only, Laptop Only, and a hand-disabled panel all survive.
+
+A mirrored layout is left alone entirely, since rebuilding it as one logical
+monitor per connector would silently un-mirror the desktop.
 
 This daemon *converges* rather than reacting to edges. The bash loop it
 replaces only ever acted when the KEYBOARD changed, remembering the last
@@ -96,6 +110,8 @@ class Watcher:
         self._resume_deadline = 0.0  # how long to distrust a contradicting dock probe
         self._applies = []      # monotonic timestamps, for storm detection
         self._announced_override = None
+        self._announced_mirror = False
+        self._pending_undock = False  # an undock edge still owing the bottom panel
         self._children = []     # backgrounded sync-backlight runs, reaped by the poll
         self.loop = GLib.MainLoop()
 
@@ -152,6 +168,11 @@ class Watcher:
             return GLib.SOURCE_CONTINUE
         first = self.docked is None
         self.docked = raw
+        # Undocking earns the bottom panel back. Only a real edge does: at
+        # startup we do not know what came before, so an undocked machine keeps
+        # whatever layout it booted with rather than having a panel forced on.
+        if not first and not raw:
+            self._pending_undock = True
         # A physical dock/undock retires any manual override: the user's last
         # explicit choice was made for the other state.
         if not first and dock.clear_override():
@@ -182,11 +203,25 @@ class Watcher:
 
     # ── the actual work ──────────────────────────────────────────────────────
 
-    def desired_internal(self, monitors):
-        want = [displayctl.TOP] if self.docked else list(INTERNAL)
-        # A panel Mutter does not report cannot be asked for; the second panel
-        # legitimately disappears on some kernels (PLAN.md V9).
-        return [c for c in want if c in monitors]
+    @staticmethod
+    def ordered(want):
+        """Internal panels first, top above bottom, externals after.
+
+        Mutter hands back the enabled connectors in no particular order, and
+        build_config stacks internal panels in the order it is given them.
+        """
+        return ([c for c in INTERNAL if c in want]
+                + [c for c in want if c not in INTERNAL])
+
+    @staticmethod
+    def is_mirrored(logical_monitors):
+        """True if any logical monitor drives more than one output.
+
+        That is GNOME's mirror mode. build_config models one logical monitor
+        per connector, so re-applying would silently un-mirror the desktop —
+        we leave such a layout alone instead.
+        """
+        return any(len(assigned) > 1 for (*_rest, assigned, _props) in logical_monitors)
 
     def storming(self):
         now = time.monotonic()
@@ -239,19 +274,48 @@ class Watcher:
 
         monitors = displayctl.parse_monitors(monitors_raw)
         enabled = displayctl.enabled_connectors(logical_raw)
-        want_internal = self.desired_internal(monitors)
-        if not want_internal:
-            log("neither internal panel is present — leaving the layout alone (R10)")
-            return 2
-        have_internal = [c for c in INTERNAL if c in enabled]
-        if have_internal == want_internal:
-            return 0  # already right: no ApplyMonitorsConfig, no flicker
+
+        if self.is_mirrored(logical_raw):
+            if not self._announced_mirror:
+                self._announced_mirror = True
+                log("mirrored layout — leaving it alone (re-applying would un-mirror it)")
+            return 0
+        self._announced_mirror = False
+
+        # The daemon governs exactly one thing: whether the BOTTOM panel is on.
+        # The top panel, the externals, their positions, scales and which one is
+        # primary are all the user's business — asserting a whole layout is what
+        # made "External Only" (Win+P) snap the top panel back on.
+        bottom_on = displayctl.BOTTOM in enabled
+        if self.docked:
+            # Continuous invariant: the keyboard is physically covering the
+            # bottom panel, so nothing useful can be shown there.
+            if not bottom_on:
+                return 0
+            want = [c for c in enabled if c != displayctl.BOTTOM]
+            if not want:
+                # Bottom was the only thing lit; blanking the machine is never
+                # allowed (R10), so land on the panel the user can actually see.
+                want = [displayctl.TOP]
+            reason = "docked, bottom panel is under the keyboard"
+        else:
+            # Undocking is an *edge*: it means "the bottom screen just became
+            # usable". Outside that moment an undocked layout is the user's own,
+            # so External Only / Laptop Only / a bottom panel they turned off by
+            # hand all survive.
+            if not self._pending_undock:
+                return 0
+            if bottom_on or displayctl.BOTTOM not in monitors:
+                self._pending_undock = False
+                return 0
+            want = list(enabled) + [displayctl.BOTTOM]
+            reason = "undocked, bringing the bottom panel back"
 
         if self.storming():
             return 0
         # Externals keep their own positions; build_config re-places them only
         # if the new internal stack would collide with where they already are.
-        want = want_internal + [c for c in enabled if c not in INTERNAL]
+        want = self.ordered(want)
         try:
             logicals = displayctl.build_config(monitors, logical_raw, properties, want)
             displayctl.apply_config(p, serial, logicals)
@@ -260,17 +324,22 @@ class Watcher:
             self.schedule(RETRY_SECONDS * 1000)
             return e.code
         self._applies.append(time.monotonic())
-        log(f"{'docked' if self.docked else 'undocked'}: was [{', '.join(have_internal) or 'none'}]"
-            f" -> enabled {', '.join(want)}")
-        if displayctl.BOTTOM in want_internal and displayctl.BOTTOM not in have_internal:
+        self._pending_undock = False
+        log(f"{reason}: [{', '.join(self.ordered(enabled)) or 'none'}] -> [{', '.join(want)}]")
+        if displayctl.BOTTOM in want and not bottom_on:
             self.sync_bottom_backlight()
         return 0
 
     # ── entry points ─────────────────────────────────────────────────────────
 
     def run_once(self):
-        """Converge a single time, ignoring debounce and any manual override."""
+        """Converge a single time, ignoring debounce and any manual override.
+
+        Asking for the policy by hand means "make it match now", so this also
+        claims the undock edge the daemon would otherwise wait for.
+        """
         self.docked = dock.keyboard_docked()
+        self._pending_undock = not self.docked
         if dock.clear_override():
             log("manual display override cleared")
         return self.converge()
