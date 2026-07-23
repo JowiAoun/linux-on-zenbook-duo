@@ -20,6 +20,14 @@ Applies with Mutter's "temporary" method by default, so a broken layout
 never persists across a session restart; set ZENDUO_APPLY_METHOD=persistent
 to write monitors.xml instead.
 
+Every layout-changing command records a manual override (see dock.py) so the
+watch-displays daemon stops enforcing the dock policy until the keyboard is
+docked or undocked. Set ZENDUO_MANAGED=1 to suppress that — the daemon does,
+for its own applies.
+
+Also importable: watch_displays drives the helpers below in-process, so
+failures raise DisplayCtlError (carrying the exit code) instead of exiting.
+
 Exit codes: 0 ok · 1 D-Bus/environment failure · 2 refused by invariant ·
 64 usage error.
 """
@@ -27,6 +35,9 @@ Exit codes: 0 ok · 1 D-Bus/environment failure · 2 refused by invariant ·
 import json
 import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dock  # noqa: E402  (same directory; shares dock state + override marker)
 
 try:
     import gi  # noqa: F401  (python3-gi, installed by system/40-duo-deps.sh)
@@ -46,14 +57,25 @@ METHOD_TEMPORARY = 1
 METHOD_PERSISTENT = 2
 
 
+class DisplayCtlError(Exception):
+    """A failure that carries the exit code the CLI should report.
+
+    The daemon catches these and retries; running as a script, main() turns
+    them back into the documented exit codes.
+    """
+
+    def __init__(self, message, code=1):
+        super().__init__(message)
+        self.code = code
+
+
 def proxy():
     try:
         return Gio.DBusProxy.new_for_bus_sync(
             Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
             BUS_NAME, OBJ_PATH, BUS_NAME, None)
     except GLib.Error as e:
-        print(f"displayctl: cannot reach Mutter on the session bus: {e.message}", file=sys.stderr)
-        sys.exit(1)
+        raise DisplayCtlError(f"cannot reach Mutter on the session bus: {e.message}", 1)
 
 
 def get_state(p):
@@ -66,8 +88,7 @@ def get_state(p):
     try:
         return p.call_sync("GetCurrentState", None, Gio.DBusCallFlags.NONE, -1, None).unpack()
     except GLib.Error as e:
-        print(f"displayctl: GetCurrentState failed: {e.message}", file=sys.stderr)
-        sys.exit(1)
+        raise DisplayCtlError(f"GetCurrentState failed: {e.message}", 1)
 
 
 def parse_monitors(monitors):
@@ -153,13 +174,11 @@ def build_config(monitors, logical_monitors, properties, want, internal=(TOP, BO
     stack — then they are appended below it.
     """
     if not want:
-        print("displayctl: REFUSED — zero enabled panels is never allowed (R10)", file=sys.stderr)
-        sys.exit(2)
+        raise DisplayCtlError("REFUSED — zero enabled panels is never allowed (R10)", 2)
     missing = [c for c in want if c not in monitors]
     if missing:
-        print(f"displayctl: unknown connector(s): {', '.join(missing)} "
-              f"(have: {', '.join(monitors)})", file=sys.stderr)
-        sys.exit(64)
+        raise DisplayCtlError(f"unknown connector(s): {', '.join(missing)} "
+                              f"(have: {', '.join(monitors)})", 64)
 
     layout_mode = int(properties.get("layout-mode", 1))
     layout = current_layout(logical_monitors)
@@ -223,8 +242,7 @@ def apply_config(p, serial, logicals, dry_run=False):
     try:
         p.call_sync("ApplyMonitorsConfig", variant, Gio.DBusCallFlags.NONE, -1, None)
     except GLib.Error as e:
-        print(f"displayctl: ApplyMonitorsConfig failed: {e.message}", file=sys.stderr)
-        sys.exit(1)
+        raise DisplayCtlError(f"ApplyMonitorsConfig failed: {e.message}", 1)
 
 
 def cmd_state(as_json):
@@ -248,7 +266,7 @@ def cmd_state(as_json):
               f"vendor={mon['vendor']} product={mon['product']}")
 
 
-def main(argv):
+def run(argv):
     if not argv:
         print(__doc__, file=sys.stderr)
         return 64
@@ -290,8 +308,20 @@ def main(argv):
     logicals = build_config(monitors, logical_raw, properties, want)
     apply_config(p, serial, logicals, dry_run=dry_run)
     if not dry_run:
+        # A hand-issued layout outranks the dock policy until the keyboard is
+        # docked or undocked — otherwise `duo bottom` (or the second-screen Fn
+        # key) while docked would be reverted by watch-displays within a frame.
+        dock.write_override(dock.keyboard_docked(), want)
         print(f"displayctl: enabled {', '.join(want)}")
     return 0
+
+
+def main(argv):
+    try:
+        return run(argv)
+    except DisplayCtlError as e:
+        print(f"displayctl: {e}", file=sys.stderr)
+        return e.code
 
 
 if __name__ == "__main__":

@@ -34,7 +34,13 @@ in
     watchDisplays = lib.mkOption {
       type = lib.types.bool;
       default = true;
-      description = "Auto-toggle the bottom panel when the keyboard docks/undocks.";
+      description = ''
+        Keep the panel layout matching the keyboard: docked -> top panel only,
+        undocked -> both. The daemon re-checks after resume, monitor hotplug and
+        any other Mutter reconfiguration, not just on dock/undock, so the bottom
+        panel cannot stay lit under a docked keyboard. `duo apply-displays`
+        enforces it once by hand.
+      '';
     };
 
     watchBacklight = lib.mkOption {
@@ -67,7 +73,7 @@ in
 
     systemd.user.services =
       lib.optionalAttrs cfg.watchDisplays {
-        duo-watch-displays = watcher "watch-displays" "toggle bottom panel on keyboard dock/undock";
+        duo-watch-displays = watcher "watch-displays" "keep the panel layout matching the keyboard dock state";
       }
       // lib.optionalAttrs cfg.watchBacklight {
         duo-watch-backlight = watcher "watch-backlight" "sync bottom panel backlight to top";

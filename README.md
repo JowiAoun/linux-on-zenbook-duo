@@ -11,9 +11,11 @@ so it can graduate to its own repository once proven on hardware
 duo doctor                 full read-only hardware probe — safe anywhere, incl. a live USB;
                            it is the Phase C install gate in PLAN.md
 duo status                 quick glance: panels, keyboard, backlight, battery limit
-duo top|bottom|both        enable that panel set (refuses to disable everything)
+duo top|bottom|both        enable that panel set (refuses to disable everything);
+                           pauses the dock policy until the keyboard docks/undocks
 duo toggle                 bottom panel on <-> off
 duo watch-displays         daemon: keyboard docked -> top only; undocked -> both panels
+duo apply-displays         enforce that policy once, now (drops any manual override)
 duo sync-backlight         copy the top panel's backlight percentage to the bottom panel
 duo watch-backlight        daemon: keep the bottom backlight synced
 duo kb-init                send the ASUS handshake to enable Fn/media-key reporting
@@ -40,7 +42,16 @@ duo log                    follow zenduo journal messages
    a 2-sample debounce — no udev triggers on the pogo-pin device forest.
 4. **Mutter D-Bus, not xrandr / gnome-monitor-config:** display control goes
    through `org.gnome.Mutter.DisplayConfig`, the same API GNOME Settings uses.
-5. **Minimal privilege:** the only root path is `/usr/local/sbin/zenduo-helper`
+5. **Converge, don't toggle:** `watch-displays` compares the layout the machine
+   *should* have against the one it *has* on every wake-up — keyboard poll,
+   Mutter's `MonitorsChanged`, and logind's resume signal — instead of acting
+   only on dock/undock edges. Reacting to edges alone is what left the bottom
+   panel lit under a docked keyboard after suspend: resuming makes Mutter
+   re-read `monitors.xml` (both panels), and since the keyboard never moved,
+   an edge-triggered watcher had nothing to react to. A deliberate
+   `duo top/bottom/both/toggle` outranks the policy until the keyboard is next
+   docked or undocked, so manual choices and the second-screen Fn key stick.
+6. **Minimal privilege:** the only root path is `/usr/local/sbin/zenduo-helper`
    (installed by `system/50-duo-sudoers.sh`), which accepts exactly two
    validated verbs. The HID backlight fallback runs unprivileged via a udev
    uaccess rule on `/dev/hidraw*`.
@@ -50,6 +61,9 @@ duo log                    follow zenduo journal messages
 ```
 bin/duo               CLI entry point (bash)
 lib/displayctl.py     Mutter DisplayConfig client (python3-gi)
+lib/watch_displays.py the dock-policy daemon: converges the layout on keyboard,
+                      MonitorsChanged and resume events (`--once` = apply-displays)
+lib/dock.py           keyboard dock probe + the manual-override marker
 lib/kb_backlight.py   HID feature-report backlight fallback (hidraw ioctl, no pyusb)
 helper/zenduo-helper  the root helper — the only privileged code
 systemd/*.service     reference unit templates (the Nix module generates the real ones)

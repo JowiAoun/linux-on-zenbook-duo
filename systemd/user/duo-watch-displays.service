@@ -3,7 +3,7 @@
 # copy to ~/.config/systemd/user/, fix ExecStart, then
 #   systemctl --user daemon-reload && systemctl --user enable --now duo-watch-displays
 [Unit]
-Description=zenduo: toggle bottom panel on keyboard dock/undock
+Description=zenduo: keep the panel layout matching the keyboard dock state
 PartOf=graphical-session.target
 After=graphical-session.target
 

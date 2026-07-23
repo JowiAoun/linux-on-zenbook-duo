@@ -35,9 +35,11 @@ usage: duo <command>
 
   doctor                 full read-only hardware/health probe (live-USB safe)
   status                 quick glance: panels, keyboard, backlight, battery limit
-  top|bottom|both        enable that panel set (refuses all-off)
+  top|bottom|both        enable that panel set (refuses all-off; pauses the
+                         dock policy until the keyboard docks/undocks)
   toggle                 bottom panel on <-> off
   watch-displays         daemon: keyboard docked -> top only; undocked -> both
+  apply-displays         enforce that policy once now (drops any manual override)
   sync-backlight [src [dst]]   copy panel backlight percentage src -> dst
   watch-backlight [src [dst]]  daemon: keep dst backlight synced to src
   kb-init                switch the keyboard into hotkey mode (enables Fn/media keys)
@@ -188,6 +190,15 @@ cmd_doctor() {
     fi
   done
   [ "$connected" = 2 ] && ck PASS 1 "both internal panels detected"
+  # The layout the machine has vs the one the dock policy asks for. A mismatch
+  # here is the "bottom screen still lit under a docked keyboard" symptom.
+  if [ "$(panel_enabled "$BOTTOM_PANEL")" = enabled ] && kb_attached; then
+    if override_active >/dev/null; then
+      ck INFO 0 "bottom panel on with the keyboard docked — a manual layout is pausing the dock policy ('duo apply-displays' resumes it)"
+    else
+      ck WARN 0 "bottom panel is ON with the keyboard docked — dock policy not enforced; is duo-watch-displays running? ('duo apply-displays' fixes it now)"
+    fi
+  fi
   local b
   for b in $(backlight_devices); do
     ck INFO 0 "backlight device: $b ($(backlight_pct "$b" || echo '?'))"
@@ -345,24 +356,21 @@ cmd_doctor() {
 
 # ── display commands ─────────────────────────────────────────────────────────
 
-cmd_watch_displays() {
-  log "watch-displays started (poll 1 Hz, debounce 2 samples)"
-  local state prev="" count=0 applied=""
-  trap 'log "watch-displays stopping"; exit 0' INT TERM
-  while :; do
-    if kb_attached; then state=attached; else state=detached; fi
-    if [ "$state" = "$prev" ]; then count=$((count+1)); else count=1; prev="$state"; fi
-    if [ "$count" -ge 2 ] && [ "$state" != "$applied" ]; then
-      if [ "$state" = attached ]; then
-        log "keyboard attached -> top panel only"
-        if "$PYGI" "$LIB/displayctl.py" top; then applied=$state; else log "displayctl failed; retrying next poll"; fi
-      else
-        log "keyboard detached -> both panels"
-        if "$PYGI" "$LIB/displayctl.py" both; then applied=$state; else log "displayctl failed; retrying next poll"; fi
-      fi
-    fi
-    sleep 1
-  done
+# watch-displays and apply-displays live in lib/watch_displays.py: the layout
+# has to be *converged* (compare wanted vs actual on every wake-up), not merely
+# toggled on keyboard edges, or anything that reconfigures Mutter behind our
+# back — resume from suspend above all — leaves the bottom panel lit under a
+# docked keyboard until it is physically re-docked.
+
+override_active() { # -> prints the overriding connectors, or nothing
+  local f="${XDG_RUNTIME_DIR:-/tmp/zenduo-$(id -u)}/zenduo/display-override.json"
+  [ -r "$f" ] || return 1
+  python3 -c 'import json,sys
+try:
+    doc = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+print(("docked" if doc.get("docked") else "undocked") + ": " + ", ".join(doc.get("want", [])))' "$f" 2>/dev/null
 }
 
 # ── backlight sync ───────────────────────────────────────────────────────────
@@ -549,6 +557,12 @@ cmd_status() {
     printf '  %-8s status=%s enabled=%s\n' "$p" "$(panel_status "$p")" "$(panel_enabled "$p")"
   done
   if kb_attached; then echo "keyboard: attached (USB $KBD_VID:$KBD_PID)"; else echo "keyboard: detached (or BT)"; fi
+  local ov
+  if ov="$(override_active)" && [ -n "$ov" ]; then
+    echo "dock policy: PAUSED by a manual layout ($ov) — 'duo apply-displays' resumes it"
+  else
+    echo "dock policy: active (docked -> top only, undocked -> both)"
+  fi
   if [ -d "$NATIVE_LED" ]; then echo "kb-backlight: native LED available"; else echo "kb-backlight: HID fallback path"; fi
   local d
   for d in $(backlight_devices); do
@@ -568,7 +582,8 @@ case "$cmd" in
   doctor)             cmd_doctor "$@" ;;
   status)             cmd_status "$@" ;;
   top|bottom|both|toggle) "$PYGI" "$LIB/displayctl.py" "$cmd" "$@" ;;
-  watch-displays)     cmd_watch_displays "$@" ;;
+  watch-displays)     exec "$PYGI" "$LIB/watch_displays.py" "$@" ;;
+  apply-displays)     exec "$PYGI" "$LIB/watch_displays.py" --once "$@" ;;
   sync-backlight)     cmd_sync_backlight "$@" ;;
   watch-backlight)    cmd_watch_backlight "$@" ;;
   kb-init)            cmd_kb_init "$@" ;;
