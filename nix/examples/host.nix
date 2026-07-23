@@ -8,6 +8,10 @@
   # Nix-installed GUI apps get icons/.desktop/XDG integration on Ubuntu.
   targets.genericLinux.enable = true;
 
+  # One Windows-style taskbar along the bottom instead of the left-hand dock
+  # plus a separate top bar. Applies at the next login, not on switch.
+  modules.desktopShell.enable = true;
+
   zenduo = {
     enable = true;
     # watchBacklight / watchRotation stay off until each passes the on-hardware
