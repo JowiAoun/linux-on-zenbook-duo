@@ -33,6 +33,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import kb_init  # noqa: E402  (same directory; shares node discovery + handshake)
+import kb_backlight  # noqa: E402  (same directory; owns the remembered level)
+import dock  # noqa: E402  (same directory; keyboard dock state)
 
 DUO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                     "..", "bin", "duo"))
@@ -87,13 +89,42 @@ def load_overrides():
 
 class Dispatcher:
     def __init__(self):
-        self.kb_level = 0  # kbd-backlight cycle state (device default is off)
+        self.children = []  # (Popen, argv), reaped by reap()
+
+    def restore_backlight(self):
+        """Put the keyboard backlight back to the remembered level.
+
+        Docking, undocking and resuming all blank it in hardware, which is why
+        it "went dark" on every transition even though the level was known.
+        """
+        level = kb_backlight.read_level()
+        if level:
+            log(f"restoring keyboard backlight to level {level}")
+        self.spawn([DUO, "kb-backlight", str(level)])
 
     def spawn(self, argv):
         try:
-            subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Capture rather than discard: a key that silently does nothing is
+            # indistinguishable from a key that never arrived, which is exactly
+            # the hole that made "the media keys stopped working" so hard to
+            # place. reap() surfaces whatever the command complained about.
+            self.children.append((subprocess.Popen(
+                argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE), argv))
         except OSError as e:
             log(f"failed to run {argv[0]}: {e}")
+
+    def reap(self):
+        still_running = []
+        for proc, argv in self.children:
+            if proc.poll() is None:
+                still_running.append((proc, argv))
+                continue
+            if proc.returncode != 0:
+                err = (proc.stderr.read() or b"").decode(errors="replace").strip()
+                log(f"{' '.join(argv)} failed (rc={proc.returncode})"
+                    + (f": {err.splitlines()[-1]}" if err else ""))
+            proc.stderr.close()
+        self.children = still_running
 
     def run(self, argv):
         try:
@@ -123,25 +154,66 @@ class Dispatcher:
         elif action == "brightness-up":
             self.brightness("StepUp")
         elif action == "kbd-backlight":
-            self.kb_level = (self.kb_level + 1) % 4
-            self.spawn([DUO, "kb-backlight", str(self.kb_level)])
+            # Cycle from what is actually remembered, not from a counter held
+            # in this process. The keyboard blanks its backlight every time it
+            # re-enumerates, and an in-memory counter kept climbing from the
+            # pre-dock value — so after docking at level 2 the first press went
+            # to 3 instead of restoring 2.
+            nxt = (kb_backlight.read_level() + 1) % (kb_backlight.MAX_LEVEL + 1)
+            self.spawn([DUO, "kb-backlight", str(nxt)])
         elif action == "second-screen":
-            self.spawn([DUO, "toggle"])
+            # Docked, the keyboard is lying on the bottom panel: turning it on
+            # would light a screen nobody can see, and (because a hand-issued
+            # layout pauses the dock policy) it would stay lit until the next
+            # dock or undock. The key is only meaningful once the panel is free.
+            if dock.keyboard_docked():
+                log("second-screen key ignored — the keyboard is docked over "
+                    "the bottom panel")
+            else:
+                self.spawn([DUO, "toggle"])
         elif action == "fn-lock":
-            pass  # the keyboard handles the layer swap itself; nothing to do
+            pass  # see the module docstring: the swap is not ours to perform yet
         else:
             log(f"no handler for '{action}' yet — captured for the future")
 
 
+def slept_since(last):
+    """(suspended?, new marks) — CLOCK_BOOTTIME counts suspend, CLOCK_MONOTONIC
+    does not, so the gap between them is exactly the time spent asleep.
+
+    The keyboard forgets hotkey mode whenever it loses power, and a resume can
+    hand back the very same hidraw node names — so watching the node set alone
+    misses it, and the media layer stays dead until a physical re-dock. That is
+    the "worked yesterday, dead after a few sleeps" failure. No D-Bus needed:
+    two clock reads tell us the machine was away.
+    """
+    mono, boot = time.monotonic(), time.clock_gettime(time.CLOCK_BOOTTIME)
+    if last is None:
+        return False, (mono, boot)
+    slept = (boot - last[1]) - (mono - last[0])
+    return slept > 1.0, (mono, boot)
+
+
 def main():
+    # Line-buffer stdout so kb_init's prints reach the journal when they happen.
+    # Block-buffered through a pipe they sat unflushed for 37 minutes, arriving
+    # stamped with a much later event and pointing diagnosis at the wrong time.
+    sys.stdout.reconfigure(line_buffering=True)
     actions = load_overrides()
     dispatcher = Dispatcher()
     fds = {}
     known = ()
+    clocks = None
+    failures, retry_at = 0, 0.0
     log(f"started (actions: {len(actions)} codes; map overrides honored)")
     while True:
+        dispatcher.reap()
+        woke, clocks = slept_since(clocks)
+        if woke:
+            log("resumed from sleep — re-sending the keyboard handshake")
+            known = ()  # the keyboard lost hotkey mode while the machine was off
         nodes = tuple(sorted(kb_init.keyboard_hidraw_nodes()))
-        if nodes != known:
+        if nodes != known and time.monotonic() >= retry_at:
             for fd in list(fds):
                 os.close(fd)
             fds = {}
@@ -158,13 +230,31 @@ def main():
                 # a moment before the uaccess ACL lands, so the first attempt can
                 # fail with EACCES — committing `known` there would wedge the
                 # daemon in the 2 s idle loop until a physical re-dock.
+                #
+                # send_handshake now only reports success when the keyboard
+                # echoes the handshake back, so a failure here means the media
+                # layer really is off and retrying is the right thing. Back off
+                # while doing so: the OOBE sequence shares a prefix with the
+                # keyboard-backlight report, and re-sending it every couple of
+                # seconds forever would poke the device far harder than intended.
                 if rc == 0 and fds:
                     known = nodes
+                    failures, retry_at = 0, 0.0
+                    # The keyboard is back and initialised: give it its
+                    # backlight back rather than leaving it dark until the
+                    # user presses the key.
+                    dispatcher.restore_backlight()
                 else:
-                    log("init/open failed (udev ACL not applied yet?) — retrying")
+                    failures += 1
+                    delay = min(60, 2 ** min(failures, 6))
+                    retry_at = time.monotonic() + delay
+                    if failures == 1 or failures % 10 == 0:
+                        log(f"hotkey mode not confirmed (attempt {failures}) — "
+                            f"media keys are dead; retrying in {delay}s")
             else:
                 log("keyboard gone (undocked / BT off) — waiting")
                 known = nodes
+                failures, retry_at = 0, 0.0
         if not fds:
             time.sleep(2)
             continue

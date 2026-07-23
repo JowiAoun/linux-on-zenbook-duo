@@ -19,9 +19,12 @@ duo watch-displays         daemon: bottom panel off while the keyboard is docked
 duo apply-displays         enforce that policy once, now (drops any manual override)
 duo sync-backlight         copy the top panel's backlight percentage to the bottom panel
 duo watch-backlight        daemon: keep the bottom backlight synced
-duo kb-init                send the ASUS handshake to enable Fn/media-key reporting
-duo watch-fn               daemon: re-init keyboard on connect + act on media keys
-duo kb-backlight 0..3      keyboard backlight — native LED if the kernel has it, else HID
+duo kb-init                send the ASUS handshake to enable Fn/media-key reporting;
+                           only reports success if the keyboard echoes it back
+duo watch-fn               daemon: re-init keyboard on connect/resume + act on media keys
+duo kb-backlight 0..3      keyboard backlight — native LED if the kernel has it, else HID;
+                           the level is remembered and restored on dock/undock/resume
+duo kb-backlight --show    print the remembered keyboard-backlight level
 duo bat-limit 20..100      battery charge-limit threshold (sysfs / root helper)
 duo set-tablet-mapping     pin each ELAN touchscreen to its own panel (GNOME 46+)
 duo watch-rotation         EXPERIMENTAL: log accelerometer orientation events
@@ -74,7 +77,15 @@ duo log                    follow zenduo journal messages
    dark — uncovering a screen is not the same as wanting it. `duo toggle` and
    the second-screen Fn key switch that one panel too, and never turn the
    laptop display on behind your back.
-8. **Minimal privilege:** the only root path is `/usr/local/sbin/zenduo-helper`
+8. **Prove it, don't assume it:** a hidraw write that returns success proves
+   only that *some* interface accepted *some* bytes — several of this
+   keyboard's six interfaces accept feature reports and quietly drop them. So
+   `kb-init` reads the handshake back before reporting success, and everything
+   that talks to the vendor collection addresses it structurally (the interface
+   declaring feature `0x5a`) rather than by trying nodes until one stops
+   erroring. Believing the first "success" is what left the media keys dead
+   while every log line claimed the init had worked.
+9. **Minimal privilege:** the only root path is `/usr/local/sbin/zenduo-helper`
    (installed by `system/50-duo-sudoers.sh`), which accepts exactly two
    validated verbs. The HID backlight fallback runs unprivileged via a udev
    uaccess rule on `/dev/hidraw*`.
@@ -107,7 +118,10 @@ fallback talks straight to `/dev/hidraw*`.
 | Keyboard BT pairing mode | Detached + switch on + **hold `F10` 4–5 s** until the LED flashes blue rapidly (switch alone does not advertise) |
 | Top digitizer | ELAN9008 `04f3:4259` → `eDP-1` |
 | Bottom digitizer | ELAN9009 `04f3:42ec` → `eDP-2` |
-| kb-backlight HID feature report | `{0x5a, 0xba, 0xc5, 0xc4, level}` (from mainline `hid-asus.c`) |
+| kb-backlight HID feature report | `{0x5a, 0xba, 0xc5, 0xc4, level}` (from mainline `hid-asus.c`), padded to the interface's report length |
+| ASUS vendor interface | the **only** hidraw interface declaring feature report `0x5a` (usage page `0xff31`). Find it that way, never by node order: `/dev/hidrawN` renumbers on every re-enumeration and sorts as text (`hidraw16` before `hidraw5`) |
+| Vendor feature report length | **17 bytes over USB** even though the descriptor declares 16 — a 16-byte write is stalled with `EPIPE`. 16 is correct over Bluetooth (mainline's size), so the length is negotiated, not assumed |
+| Hotkey-mode proof | `GET_FEATURE 0x5a` echoes back `ASUS Tech.Inc.` once the handshake has landed. Valid only immediately after the write — any later `0x5a` write (e.g. the backlight report) overwrites that buffer |
 | Battery limit | `/sys/class/power_supply/BAT*/charge_control_end_threshold` |
 
 ## Prior art & licensing

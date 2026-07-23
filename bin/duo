@@ -45,7 +45,9 @@ usage: duo <command>
   watch-backlight [src [dst]]  daemon: keep dst backlight synced to src
   kb-init                switch the keyboard into hotkey mode (enables Fn/media keys)
   watch-fn               daemon: init keyboard on connect + act on media keys
-  kb-backlight <0-3>     keyboard backlight (native LED if present, else HID)
+  kb-backlight <0-3>     keyboard backlight (native LED if present, else HID);
+                         the level is remembered and restored on dock/undock/resume
+  kb-backlight --show    print the remembered level
   bat-limit <20-100>     battery charge-limit threshold
   set-tablet-mapping     map each touchscreen to its own panel (GNOME 46+)
   watch-rotation         daemon: follow accelerometer orientation (EXPERIMENTAL)
@@ -452,6 +454,11 @@ cmd_watch_fn() {
 
 cmd_kb_backlight() {
   local level="${1:-}"
+  # --show prints the remembered level (what a dock/undock/resume restores).
+  if [ "$level" = "--show" ]; then
+    python3 "$LIB/kb_backlight.py" --show
+    return $?
+  fi
   case "$level" in 0|1|2|3) ;; *) usage ;; esac
   if [ -d "$NATIVE_LED" ]; then
     local max
@@ -461,6 +468,10 @@ cmd_kb_backlight() {
     # `echo ... > "$f" 2>/dev/null` bash applies redirections left to right and
     # reports the failed open on the still-original stderr.
     if { echo "$value" > "$NATIVE_LED/brightness"; } 2>/dev/null; then
+      # Remember it on this side too: the cycle and the post-dock restore read
+      # that file, and they must not diverge just because the kernel gained a
+      # native LED and this branch started winning.
+      python3 "$LIB/kb_backlight.py" --record "$level" >/dev/null 2>&1 || true
       log "kb-backlight $level via NATIVE LED"
       return 0
     fi
@@ -565,6 +576,7 @@ cmd_status() {
     echo "dock policy: active (bottom panel off while docked, on when undocked)"
   fi
   if [ -d "$NATIVE_LED" ]; then echo "kb-backlight: native LED available"; else echo "kb-backlight: HID fallback path"; fi
+  echo "kb-backlight level: $(python3 "$LIB/kb_backlight.py" --show 2>/dev/null || echo '?') (restored on dock/undock/resume)"
   local d
   for d in $(backlight_devices); do
     echo "backlight: $d = $(backlight_pct "$d" || echo '?')"
