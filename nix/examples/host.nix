@@ -13,5 +13,8 @@
     # watchBacklight / watchRotation stay off until each passes the on-hardware
     # test protocol (docs/PLAN.md §11.5); flip them here when they graduate.
     batteryLimit = 80;
+    # applyMethod stays "temporary" — see the option's warning: a persistent
+    # apply makes gnome-shell prompt "Keep display settings?" every time, which
+    # is unusable for a daemon that applies on every dock, undock and resume.
   };
 }

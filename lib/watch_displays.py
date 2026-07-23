@@ -92,7 +92,8 @@ class Watcher:
         self._proxy = None
         self._system_bus = None  # MUST be kept: see run(), it owns the logind subscription
         self._timer = 0
-        self._quiet_until = 0.0
+        self._quiet_until = 0.0     # storm backoff
+        self._resume_deadline = 0.0  # how long to distrust a contradicting dock probe
         self._applies = []      # monotonic timestamps, for storm detection
         self._announced_override = None
         self._children = []     # backgrounded sync-backlight runs, reaped by the poll
@@ -169,13 +170,15 @@ class Watcher:
             log("suspending")
             return
         # Resume: the keyboard may re-enumerate a beat late, and Mutter is busy
-        # restoring monitors.xml. Re-debounce the dock state from scratch and
-        # converge once the dust settles, rather than acting on a half-probed
-        # machine and flapping the panels.
+        # restoring monitors.xml. Re-debounce the dock state from scratch, but
+        # converge straight away — deferring wholesale would leave a wrongly
+        # lit bottom panel on screen for the whole settle window, which is the
+        # exact thing this daemon exists to prevent. converge() distrusts only
+        # a probe that CONTRADICTS what we knew before suspending.
         log("resumed — re-checking dock state and panel layout")
         self._raw, self._streak = None, 0
-        self._quiet_until = time.monotonic() + RESUME_SETTLE_SECONDS
-        self.schedule(RESUME_SETTLE_SECONDS * 1000 + 100)
+        self._resume_deadline = time.monotonic() + RESUME_SETTLE_SECONDS
+        self.schedule(0)
 
     # ── the actual work ──────────────────────────────────────────────────────
 
@@ -205,6 +208,14 @@ class Watcher:
         now = time.monotonic()
         if now < self._quiet_until:
             self.schedule(int((self._quiet_until - now) * 1000) + 50)
+            return 0
+        if now < self._resume_deadline and dock.keyboard_docked() != self.docked:
+            # Just resumed and the probe disagrees with the pre-suspend state:
+            # either the keyboard really came off during sleep, or USB has not
+            # re-enumerated yet. Ambiguous, so let the poll's debounce settle it
+            # instead of flapping the panels on a half-probed machine. A probe
+            # that AGREES is not ambiguous, so that path corrects immediately.
+            self.schedule(POLL_SECONDS * 1000)
             return 0
 
         override = dock.read_override()

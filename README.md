@@ -35,7 +35,13 @@ duo log                    follow zenduo journal messages
 
 1. **Fail-safe:** `displayctl` refuses any configuration with zero enabled
    panels; display changes use Mutter's *temporary* apply method so a broken
-   layout never survives a session restart.
+   layout never survives a session restart. There is a second, harder reason
+   for *temporary* (verified on hardware 2026-07-23): gnome-shell treats a
+   **persistent** `ApplyMonitorsConfig` as a user-initiated change and raises
+   its *"Keep display settings?"* countdown every time, so an automatic daemon
+   would prompt on every dock, undock and resume. `ZENDUO_APPLY_METHOD=persistent`
+   still exists for one-off manual use — the trade is that Mutter then restores
+   the layout itself on resume, at the cost of those dialogs.
 2. **Native-first:** every capability probes the kernel interface before using
    a userspace fallback, so newer kernels automatically shrink this tool.
 3. **Poll, don't storm:** keyboard presence is polled from sysfs at 1 Hz with

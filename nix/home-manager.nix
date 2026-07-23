@@ -13,6 +13,10 @@ let
     };
     Service = {
       ExecStart = "${cfg.repoPath}/duo/bin/duo ${sub}";
+      # The daemons must agree with the shell about how layouts are applied —
+      # a daemon writing monitors.xml while a hand-run `duo both` only applied
+      # temporarily would have Mutter undo the manual choice on the next resume.
+      Environment = [ "ZENDUO_APPLY_METHOD=${cfg.applyMethod}" ];
       Restart = "on-failure";
       RestartSec = 3;
     };
@@ -43,6 +47,30 @@ in
       '';
     };
 
+    applyMethod = lib.mkOption {
+      type = lib.types.enum [ "temporary" "persistent" ];
+      default = "temporary";
+      description = ''
+        How layout changes are handed to Mutter. Leave this at "temporary"
+        unless you know exactly why you want otherwise.
+
+        "temporary" never touches monitors.xml, so nothing zenduo does survives
+        a session restart. The cost is that Mutter re-reads monitors.xml
+        whenever it re-detects the connectors — notably on some resumes — which
+        lights the bottom panel up under a docked keyboard until the daemon
+        corrects it a fraction of a second later.
+
+        "persistent" writes monitors.xml, so Mutter restores the docked layout
+        itself and that flash never happens. VERIFIED ON HARDWARE 2026-07-23
+        AND REJECTED: gnome-shell treats a persistent ApplyMonitorsConfig as a
+        user-initiated change and pops its "Keep display settings?" countdown
+        every single time, so a daemon that applies on every dock, undock and
+        resume buries you in confirmation dialogs. The brief flash is by far
+        the lesser evil. It also outlives zenduo — stop the daemon while docked
+        and the bottom panel stays off until `duo both` turns it back on.
+      '';
+    };
+
     watchBacklight = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -70,6 +98,11 @@ in
 
   config = lib.mkIf cfg.enable {
     home.sessionPath = [ "${cfg.repoPath}/duo/bin" ];
+
+    # So a hand-run `duo top/bottom/both/toggle` applies the same way the
+    # daemons do (the units set this themselves; systemd user services do not
+    # pick up the shell's environment).
+    home.sessionVariables.ZENDUO_APPLY_METHOD = cfg.applyMethod;
 
     systemd.user.services =
       lib.optionalAttrs cfg.watchDisplays {
