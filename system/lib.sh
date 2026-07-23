@@ -55,6 +55,22 @@ host_profile() {
 
 is_duo_host() { [ "$(host_profile)" = zenbook-duo ]; }
 
+# True iff user-config.nix sets `<key> = true;`. The bridge from the Nix-side
+# config to the root layer, for switches the system layer has to honor
+# (dockerEngine, dockerDesktop). Missing file or missing key => false, so an
+# older user-config.nix never trips a new toggle.
+#
+# Read from the file rather than from the environment: `FOO=1 sudo make system`
+# silently loses FOO to sudo's env_reset, so an env-var-only switch would be a
+# preview-that-modifies trap all over again.
+config_flag() {
+  [ -f "$DOME_ROOT/user-config.nix" ] || return 1
+  local v
+  v="$(sed -nE "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*(true|false);.*/\1/p" \
+        "$DOME_ROOT/user-config.nix" | head -n1)"
+  [ "$v" = true ]
+}
+
 # The human user the duo tooling belongs to:
 # user-config.nix username > the user who invoked sudo > failure.
 target_user() {
