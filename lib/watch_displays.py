@@ -5,8 +5,11 @@ Policy, and deliberately no more than this:
 
   * **while docked, the bottom panel is off** — the keyboard is lying on it, so
     nothing shown there can be seen. Enforced continuously.
-  * **undocking turns it back on** — that edge is the moment the screen becomes
-    usable again. Enforced once, at the transition.
+  * **undocking turns it back on, if the laptop's own display is in use** —
+    that edge is the moment the screen becomes usable again. Enforced once, at
+    the transition. When the top panel is off (external-only, or the lid shut
+    over the bottom panel) the bottom one stays off: uncovering a screen is not
+    the same as wanting it.
 
 Everything else in the layout belongs to the user: the top panel, external
 monitors, their positions, scales, and which one is primary. The daemon reads
@@ -204,16 +207,6 @@ class Watcher:
     # ── the actual work ──────────────────────────────────────────────────────
 
     @staticmethod
-    def ordered(want):
-        """Internal panels first, top above bottom, externals after.
-
-        Mutter hands back the enabled connectors in no particular order, and
-        build_config stacks internal panels in the order it is given them.
-        """
-        return ([c for c in INTERNAL if c in want]
-                + [c for c in want if c not in INTERNAL])
-
-    @staticmethod
     def is_mirrored(logical_monitors):
         """True if any logical monitor drives more than one output.
 
@@ -276,6 +269,7 @@ class Watcher:
         enabled = displayctl.enabled_connectors(logical_raw)
 
         if self.is_mirrored(logical_raw):
+            self._pending_undock = False  # hands off means the edge is spent
             if not self._announced_mirror:
                 self._announced_mirror = True
                 log("mirrored layout — leaving it alone (re-applying would un-mirror it)")
@@ -305,27 +299,39 @@ class Watcher:
             # hand all survive.
             if not self._pending_undock:
                 return 0
+            # Evaluated exactly once, whatever the outcome — a deferred edge
+            # that fires later, when the layout has moved on, is a surprise.
+            # Only a failed apply below puts it back.
+            self._pending_undock = False
             if bottom_on or displayctl.BOTTOM not in monitors:
-                self._pending_undock = False
+                return 0
+            if displayctl.TOP not in enabled:
+                # The laptop's own display is off — external-only, or the lid is
+                # shut over the bottom panel. The bottom screen follows the top
+                # one: undocking uncovers it, but "uncovered" is not "wanted".
+                log("undocked with the laptop display off — leaving the bottom "
+                    "panel off (use `duo both` or Win+P to bring it back)")
                 return 0
             want = list(enabled) + [displayctl.BOTTOM]
             reason = "undocked, bringing the bottom panel back"
 
         if self.storming():
+            self._pending_undock = not self.docked  # unfinished edge: try later
             return 0
         # Externals keep their own positions; build_config re-places them only
         # if the new internal stack would collide with where they already are.
-        want = self.ordered(want)
+        want = displayctl.order_connectors(want)
         try:
             logicals = displayctl.build_config(monitors, logical_raw, properties, want)
             displayctl.apply_config(p, serial, logicals)
         except displayctl.DisplayCtlError as e:
+            self._pending_undock = not self.docked  # unfinished edge: try again
             log(f"{e} — retrying in {RETRY_SECONDS}s")
             self.schedule(RETRY_SECONDS * 1000)
             return e.code
         self._applies.append(time.monotonic())
-        self._pending_undock = False
-        log(f"{reason}: [{', '.join(self.ordered(enabled)) or 'none'}] -> [{', '.join(want)}]")
+        log(f"{reason}: [{', '.join(displayctl.order_connectors(enabled)) or 'none'}]"
+            f" -> [{', '.join(want)}]")
         if displayctl.BOTTOM in want and not bottom_on:
             self.sync_bottom_backlight()
         return 0

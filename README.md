@@ -13,7 +13,7 @@ duo doctor                 full read-only hardware probe — safe anywhere, incl
 duo status                 quick glance: panels, keyboard, backlight, battery limit
 duo top|bottom|both        enable that panel set (refuses to disable everything);
                            pauses the dock policy until the keyboard docks/undocks
-duo toggle                 bottom panel on <-> off
+duo toggle                 bottom panel on <-> off, leaving every other output alone
 duo watch-displays         daemon: bottom panel off while the keyboard is docked, back
                            on when it comes off — nothing else in the layout is touched
 duo apply-displays         enforce that policy once, now (drops any manual override)
@@ -68,7 +68,13 @@ duo log                    follow zenduo journal messages
    undock *edge*, so an undocked layout the user chose is never overridden.
    Mirrored layouts are left alone entirely — one logical monitor per connector
    would silently un-mirror them.
-7. **Minimal privilege:** the only root path is `/usr/local/sbin/zenduo-helper`
+7. **The bottom panel follows the top one:** undocking only brings it back when
+   the laptop's own display is actually in use. On external-only (or with the
+   lid shut over the bottom panel), taking the keyboard off leaves that screen
+   dark — uncovering a screen is not the same as wanting it. `duo toggle` and
+   the second-screen Fn key switch that one panel too, and never turn the
+   laptop display on behind your back.
+8. **Minimal privilege:** the only root path is `/usr/local/sbin/zenduo-helper`
    (installed by `system/50-duo-sudoers.sh`), which accepts exactly two
    validated verbs. The HID backlight fallback runs unprivileged via a udev
    uaccess rule on `/dev/hidraw*`.

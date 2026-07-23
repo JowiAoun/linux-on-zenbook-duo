@@ -199,6 +199,17 @@ def contiguous(rects):
     return len(seen) == len(rects)
 
 
+def order_connectors(want, internal=(TOP, BOTTOM)):
+    """Internal panels first, top above bottom, externals after.
+
+    build_config stacks internal panels in the order it is handed them, and
+    Mutter reports enabled connectors in no particular order, so any list
+    assembled from live state has to be put back into physical order first.
+    """
+    return ([c for c in internal if c in want]
+            + [c for c in want if c not in internal])
+
+
 def build_config(monitors, logical_monitors, properties, want, internal=(TOP, BOTTOM)):
     """Build the ApplyMonitorsConfig logical-monitor list enabling exactly
     the connectors in `want`.
@@ -361,7 +372,15 @@ def run(argv):
     elif cmd == "both":
         want = [TOP, BOTTOM]
     elif cmd == "toggle":
-        want = [TOP] if BOTTOM in enabled else [TOP, BOTTOM]
+        # Toggles the BOTTOM panel and nothing else — whatever is already on
+        # stays on. Asserting [TOP, BOTTOM] here meant the second-screen Fn key
+        # also switched the laptop display on, which is wrong when the user is
+        # running external-only.
+        want = [c for c in enabled if c != BOTTOM]
+        if BOTTOM not in enabled:
+            want.append(BOTTOM)
+        elif not want:
+            want = [TOP]  # R10: toggling off the only enabled panel would blank it
     elif cmd == "only":
         want = args
     else:
@@ -376,6 +395,7 @@ def run(argv):
         external = [c for c in enabled if c not in (TOP, BOTTOM) and c not in want]
         want = want + external
 
+    want = order_connectors(want)
     logicals = build_config(monitors, logical_raw, properties, want)
     apply_config(p, serial, logicals, dry_run=dry_run)
     if not dry_run:

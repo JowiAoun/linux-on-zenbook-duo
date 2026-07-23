@@ -45,8 +45,9 @@ in
         reconfiguration, not just on dock/undock, so the bottom panel cannot
         stay lit under a docked keyboard. It governs that one panel only — the
         top panel, external monitors and their arrangement stay yours, so Win+P
-        layouts like "External Only" survive. `duo apply-displays` enforces the
-        policy once by hand.
+        layouts like "External Only" survive; undocking on external-only leaves
+        the bottom panel dark rather than lighting a screen you are not using.
+        `duo apply-displays` enforces the policy once by hand.
       '';
     };
 
