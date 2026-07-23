@@ -20,6 +20,10 @@ case "${1:-}" in
     [[ "$dev" =~ ^[A-Za-z0-9._:-]+$ ]] || usage
     case "$dev" in *..*) usage ;; esac
     [[ "$pct" =~ ^[0-9]+$ ]] || usage
+    # Force base 10 before any arithmetic: bash reads a leading-zero operand as
+    # OCTAL, so a validated "010" would write 8% instead of 10%, and "08"/"09"
+    # would abort with "value too great for base" under set -e.
+    pct=$((10#$pct))
     [ "$pct" -le 100 ] || usage
     base="/sys/class/backlight/$dev"
     if [ ! -e "$base/brightness" ] || [ ! -e "$base/max_brightness" ]; then
@@ -32,6 +36,7 @@ case "${1:-}" in
   batlimit)
     pct="${2:-}"
     [[ "$pct" =~ ^[0-9]+$ ]] || usage
+    pct=$((10#$pct))  # normalize like the backlight verb (see the note above)
     if [ "$pct" -lt 20 ] || [ "$pct" -gt 100 ]; then
       usage
     fi
