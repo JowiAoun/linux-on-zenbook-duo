@@ -69,12 +69,21 @@ target_user() {
   echo "$u"
 }
 
+# True iff the package is in dpkg state "install ok installed".
+# NOT `dpkg -s`: that exits 0 for any package dpkg still knows about, including
+# "deinstall ok config-files" (removed but not purged — where `apt remove` leaves
+# anything with conffiles). Such a package would be reported present forever and
+# never reinstalled, quietly breaking the self-healing idempotency contract.
+pkg_installed() {
+  [ "$(dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null)" = installed ]
+}
+
 # apt install, only for packages not already installed.
 ensure_pkg() {
   local missing=()
   local p
   for p in "$@"; do
-    dpkg -s "$p" >/dev/null 2>&1 || missing+=("$p")
+    pkg_installed "$p" || missing+=("$p")
   done
   if [ ${#missing[@]} -eq 0 ]; then
     log "packages already present: $*"

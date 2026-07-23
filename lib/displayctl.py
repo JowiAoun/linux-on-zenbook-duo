@@ -120,17 +120,38 @@ def pick_mode(mon):
     return mon["modes"][0]
 
 
-def logical_size(mode, scale, layout_mode):
+def logical_size(mode, scale, layout_mode, transform=0):
     """Size a logical monitor occupies, honoring Mutter's layout mode
-    (1 = logical/scaled coordinates, 2 = physical pixels)."""
+    (1 = logical/scaled coordinates, 2 = physical pixels).
+
+    Odd transforms (1/3/5/7 = 90°/270° and their flipped variants) rotate the
+    panel, so Mutter derives the logical size with width and height swapped —
+    ignoring that produced overlapping layouts that ApplyMonitorsConfig rejects.
+    """
+    w, h = mode["width"], mode["height"]
+    if transform % 2:
+        w, h = h, w
     if layout_mode == 2:
-        return mode["width"], mode["height"]
-    return round(mode["width"] / scale), round(mode["height"] / scale)
+        return w, h
+    return round(w / scale), round(h / scale)
 
 
-def build_config(monitors, logical_monitors, properties, want):
+def overlaps(a, b):
+    """True if two (x, y, w, h) rectangles intersect."""
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
+
+
+def build_config(monitors, logical_monitors, properties, want, internal=(TOP, BOTTOM)):
     """Build the ApplyMonitorsConfig logical-monitor list enabling exactly
-    the connectors in `want` (ordered top-to-bottom stacking)."""
+    the connectors in `want`.
+
+    Internal panels are stacked top-to-bottom at x=0. External monitors keep
+    the position they already had (so a desk arrangement survives every
+    dock/undock), unless that position would collide with the new internal
+    stack — then they are appended below it.
+    """
     if not want:
         print("displayctl: REFUSED — zero enabled panels is never allowed (R10)", file=sys.stderr)
         sys.exit(2)
@@ -143,21 +164,42 @@ def build_config(monitors, logical_monitors, properties, want):
     layout_mode = int(properties.get("layout-mode", 1))
     layout = current_layout(logical_monitors)
 
+    # Keep the user's primary monitor primary as long as it stays enabled;
+    # only fall back to the first panel when the old primary is being disabled.
+    prev_primary = next((c for c in want
+                         if layout.get(c) and layout[c]["primary"]), None)
+    primary_connector = prev_primary or want[0]
+
+    placed = []      # (x, y, w, h) rectangles already committed
     logicals = []
     y = 0
-    primary_assigned = False
-    for connector in want:
+    for connector in [c for c in want if c in internal]:
         mon = monitors[connector]
         mode = pick_mode(mon)
         prev = layout.get(connector)
         scale = prev["scale"] if prev else mode["preferred_scale"]
         transform = prev["transform"] if prev else 0
-        primary = not primary_assigned
-        primary_assigned = True
-        _w, h = logical_size(mode, scale, layout_mode)
-        logicals.append((0, y, scale, transform, primary,
+        w, h = logical_size(mode, scale, layout_mode, transform)
+        logicals.append((0, y, scale, transform, connector == primary_connector,
                          [(connector, mode["id"], {})]))
+        placed.append((0, y, w, h))
         y += h
+
+    for connector in [c for c in want if c not in internal]:
+        mon = monitors[connector]
+        mode = pick_mode(mon)
+        prev = layout.get(connector)
+        scale = prev["scale"] if prev else mode["preferred_scale"]
+        transform = prev["transform"] if prev else 0
+        w, h = logical_size(mode, scale, layout_mode, transform)
+        x = prev["x"] if prev else 0
+        ext_y = prev["y"] if prev else y
+        if any(overlaps((x, ext_y, w, h), r) for r in placed):
+            x, ext_y = 0, y  # its old spot now collides with the panel stack
+            y += h
+        logicals.append((x, ext_y, scale, transform, connector == primary_connector,
+                         [(connector, mode["id"], {})]))
+        placed.append((x, ext_y, w, h))
     return logicals
 
 
@@ -238,9 +280,12 @@ def main(argv):
         return 64
 
     # External monitors are left alone: keep any currently-enabled connector
-    # that is not one of the two internal panels.
-    external = [c for c in enabled if c not in (TOP, BOTTOM) and c not in want]
-    want = want + external
+    # that is not one of the two internal panels. NOT for `only`, whose
+    # documented contract is "enable exactly these connectors" — re-adding
+    # externals there meant no command could ever turn an external off.
+    if cmd != "only":
+        external = [c for c in enabled if c not in (TOP, BOTTOM) and c not in want]
+        want = want + external
 
     logicals = build_config(monitors, logical_raw, properties, want)
     apply_config(p, serial, logicals, dry_run=dry_run)

@@ -483,8 +483,12 @@ duo top|bottom|both|toggle     # manual panel control (refuses all-off)
 duo kb-backlight 0..3          # native LED if present, else hidraw fallback
 duo bat-limit 80               # charge threshold
 sudo make system HOST=zenbook-duo   # (re)apply system layer — idempotent
-DRY_RUN=1 sudo make system HOST=zenbook-duo   # preview what would change
-home-manager switch --flake .#zenbook-duo -b backup
+sudo make system HOST=zenbook-duo DRY_RUN=1   # preview what would change
+sudo bash system/run.sh --host zenbook-duo --dry-run   # same, without make
+      # NB: `DRY_RUN=1 sudo ...` does NOT work — sudo's env_reset strips it and
+      # the "preview" would really apply the changes. Pass it as a make argument
+      # or use the --dry-run flag.
+home-manager switch --flake path:.#zenbook-duo -b backup   # path: includes user-config.nix
 manage-bde -protectors -disable C: -RebootCount 3    # Windows: suspend BitLocker
 ```
 

@@ -23,7 +23,7 @@ duo bat-limit 20..100      battery charge-limit threshold (sysfs / root helper)
 duo set-tablet-mapping     pin each ELAN touchscreen to its own panel (GNOME 46+)
 duo watch-rotation         EXPERIMENTAL: log accelerometer orientation events
 duo fn-probe               inventory what the Fn keys actually emit (raw hex)
-duo fn-map                 guided wizard: HOLD Fn, press each key -> build a key->report map
+duo fn-map                 guided wizard: after kb-init press each key BARE -> key->report map
 duo fn-map --show          print the saved key->report map without re-capturing
 duo watch-input            (root) decode key events from the keyboard + Asus WMI hotkeys
 duo log                    follow zenduo journal messages

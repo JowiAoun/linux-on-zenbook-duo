@@ -92,6 +92,15 @@ def main():
                 try:
                     data = os.read(fd, 64)
                 except OSError:
+                    # The device went away (undock / BT drop). A removed hidraw
+                    # fd stays permanently "ready" via POLLHUP, so leaving it in
+                    # `fds` would spin select() at 100% CPU forever.
+                    os.close(fd)
+                    node = fds.pop(fd, None)
+                    print(f"fn_probe: {node} disappeared (keyboard detached?)", file=sys.stderr)
+                    if not fds:
+                        print("fn_probe: no readable nodes left — stopping.", file=sys.stderr)
+                        return 1
                     continue
                 if data:
                     hexs = " ".join(f"{b:02x}" for b in data)

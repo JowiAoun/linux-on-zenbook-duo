@@ -147,15 +147,24 @@ def main():
             fds = {}
             if nodes:
                 log(f"keyboard present on {' '.join(nodes)} — sending init")
-                kb_init.send_handshake(hint=False)
+                rc = kb_init.send_handshake(hint=False)
                 for n in nodes:
                     try:
                         fds[os.open(n, os.O_RDONLY | os.O_NONBLOCK)] = n
                     except OSError as e:
                         log(f"cannot read {n}: {e}")
+                # Only remember this node set once the init AND at least one open
+                # actually succeeded. Docking races udev: the hidraw nodes appear
+                # a moment before the uaccess ACL lands, so the first attempt can
+                # fail with EACCES — committing `known` there would wedge the
+                # daemon in the 2 s idle loop until a physical re-dock.
+                if rc == 0 and fds:
+                    known = nodes
+                else:
+                    log("init/open failed (udev ACL not applied yet?) — retrying")
             else:
                 log("keyboard gone (undocked / BT off) — waiting")
-            known = nodes
+                known = nodes
         if not fds:
             time.sleep(2)
             continue

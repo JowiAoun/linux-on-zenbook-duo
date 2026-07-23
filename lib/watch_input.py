@@ -109,6 +109,15 @@ def main():
                 try:
                     buf = os.read(fd, EV_SIZE * 64)
                 except OSError:
+                    # Device removed (keyboard undocked). A dead evdev fd is
+                    # permanently "ready" via EPOLLHUP, so it has to leave `fds`
+                    # or select() spins a full core printing nothing.
+                    os.close(fd)
+                    gone = fds.pop(fd, (None, ""))[0]
+                    print(f"watch-input: {gone} disappeared (device removed)", file=sys.stderr)
+                    if not fds:
+                        print("watch-input: no devices left — stopping.", file=sys.stderr)
+                        return 1
                     continue
                 ev = fds[fd][0]
                 for i in range(0, len(buf) - EV_SIZE + 1, EV_SIZE):

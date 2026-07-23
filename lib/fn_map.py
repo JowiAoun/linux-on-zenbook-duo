@@ -7,11 +7,12 @@ waits for the press, captures the raw report that key emits, and after the whole
 row writes a key->report map on disk that `duo watch-fn` will later turn into
 real actions (brightness, volume, keyboard backlight, ...).
 
-IMPORTANT - the media functions are the *Fn layer*. On this laptop the bare
-F-row keys are ordinary F1..F12 (they reach the terminal as escape sequences and
-trigger F10=menu / F11=fullscreen); the brightness/volume/backlight icons only
-fire when you HOLD Fn. So hold Fn while pressing each "Fn+Fx" key below. The one
-dedicated key left of PrtSc has no F-key meaning and fires bare.
+IMPORTANT - run `duo kb-init` first, then press each key BARE. The ASUS
+handshake flips the keyboard's layers: after it the media functions are the
+*bare* key press and HOLDING Fn gives plain F1..F12 instead (INSTALL-LOG
+Round 10). Holding Fn therefore emits ordinary F-key reports, which this wizard
+filters out - you would sit at the prompt capturing nothing. The one dedicated
+key left of PrtSc has no F-key meaning and fires bare either way.
 
 Why raw reports at all: the Duo's media/Fn keys are ASUS vendor HID usages that
 hid-generic does not translate into input events, and hid_asus has no entry for
@@ -107,9 +108,22 @@ def trim(data):
     return bytes(data[:end])
 
 
+def drop(fds, fd):
+    # A hidraw node that went away (keyboard undocked / BT dropped mid-wizard)
+    # reports readable forever via POLLHUP. Leaving it in `fds` turns every
+    # select() loop below into a 100%-CPU spin, so close and forget it.
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+    fds.pop(fd, None)
+
+
 def flush(fds):
     # Discard anything already buffered, without blocking.
     while True:
+        if not fds:
+            return
         ready, _, _ = select.select(list(fds), [], [], 0)
         if not ready:
             return
@@ -117,7 +131,7 @@ def flush(fds):
             try:
                 os.read(fd, 64)
             except OSError:
-                pass
+                drop(fds, fd)
 
 
 def drain(fds, seconds):
@@ -125,19 +139,22 @@ def drain(fds, seconds):
     deadline = time.monotonic() + seconds
     while True:
         remaining = deadline - time.monotonic()
-        if remaining <= 0:
+        if remaining <= 0 or not fds:
             return
         ready, _, _ = select.select(list(fds), [], [], remaining)
         for fd in ready:
             try:
                 os.read(fd, 64)
             except OSError:
-                pass
+                drop(fds, fd)
 
 
 def capture_one(fds):
-    # Returns ("ok", (sig_bytes, node)) | ("skip", None) | ("quit", None).
+    # Returns ("ok", (sig_bytes, node)) | ("skip", None) | ("quit", None)
+    #       | ("gone", None) when the keyboard disappeared mid-wizard.
     flush(fds)
+    if not fds:
+        return ("gone", None)
     while True:
         ready, _, _ = select.select(list(fds) + [sys.stdin], [], [], None)
         if sys.stdin in ready:
@@ -151,6 +168,9 @@ def capture_one(fds):
             try:
                 data = os.read(fd, 64)
             except OSError:
+                drop(fds, fd)
+                if not fds:
+                    return ("gone", None)
                 continue
             if is_key_event(data):
                 sig = trim(data)
@@ -219,6 +239,11 @@ def run_wizard():
         status, payload = capture_one(fds)
         if status == "quit":
             print("stopping.", file=sys.stderr)
+            break
+        if status == "gone":
+            # Keep going to the save step: whatever was captured stays worth
+            # writing, same contract as quitting early with `q`.
+            print("keyboard disappeared — stopping.", file=sys.stderr)
             break
         if status == "skip":
             print("skipped.", file=sys.stderr)
