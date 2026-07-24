@@ -51,7 +51,7 @@ What this evolution **adds** (Phases F–H artifacts): `docs/` (this plan + rese
 | D5 | Duo tooling | **Write our own (`zenduo`)**, using alesya-h & Fmstrat as prior art | Control + maintenance. Licensing in §11.2 — now *relaxed* for alesya-h (BSD-2-Clause verified), still strict for Fmstrat (GPL-3.0) |
 | D6 | Boot chain | **GRUB on the existing Windows ESP** (no format!), Secure Boot **stays ON**, `os-prober` enabled | Ubuntu's signed shim works with Secure Boot; one ESP avoids firmware confusion |
 | D7 | Kernel policy | **HWE 6.17 stack** (default on 24.04.4) + **GA 6.8 installed as fallback** | Newest well-tested kernel for this hardware; known-good escape hatch in GRUB |
-| D8 | Swap | ~~8 GB~~ → **4 GB swapfile inside encrypted root** (as-built, small-disk Option B); no hibernation | Machine is s2idle-only; hibernate isn't worth the complexity |
+| D8 | Swap | ~~8 GB~~ → ~~4 GB swapfile~~ → **two tiers: zstd zram at prio 100 (`min(ram/2, 8192)` MB) + 16 GB swapfile inside encrypted root**, plus `MemoryHigh=12G` on `app.slice` and gnome-shell exempted from systemd-oomd (`system/25-memory.sh`, amended 2026-07-24); still no hibernation | 4 GB behind 15 GiB of RAM was not enough: with a modded game resident, `systemd-oomd` hit its 50% pressure limit and **killed gnome-shell**, which on Wayland ends the session. oomd picks by pressure, not size, so the compositor lost to the game every time. Machine is still s2idle-only; hibernate remains out of scope |
 | D9 | Clock | Windows switched to **UTC RTC** via registry | More robust than making Linux use local time |
 | D10 | Desktop | **GNOME on Wayland** (Ubuntu default) | All Duo display tooling depends on Mutter's D-Bus API; KDE/X11 out of scope |
 
