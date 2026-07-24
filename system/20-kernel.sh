@@ -34,9 +34,20 @@ HWE="linux-generic-hwe-${VERSION_ID:-24.04}"
 # published (even the running) kernel gets misreported as "not published yet".
 # So if the first look comes up empty, refresh the lists once and look again
 # before concluding the stack is genuinely absent.
+#
+# The policy output is captured into a variable rather than piped into
+# `grep -q`. lib.sh sets pipefail, and `grep -q` exits at the first match — which
+# SIGPIPEs apt-cache while it still has the version table to write, so the
+# pipeline returns 141 and a published kernel reads as absent. It has never
+# fired here only because pkg_installed short-circuits on a machine that already
+# has the HWE stack; on a fresh one it would silently leave you on GA.
 hwe_available() {
-  pkg_installed "$HWE" \
-    || apt-cache policy "$HWE" 2>/dev/null | grep -qE '^[[:space:]]+Candidate: [^([:space:]]'
+  if pkg_installed "$HWE"; then
+    return 0
+  fi
+  local policy
+  policy="$(apt-cache policy "$HWE" 2>/dev/null || true)"
+  grep -qE '^[[:space:]]+Candidate: [^([:space:]]' <<<"$policy"
 }
 
 if ! hwe_available; then apt_update; fi
