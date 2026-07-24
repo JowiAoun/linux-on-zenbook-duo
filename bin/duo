@@ -168,7 +168,16 @@ cmd_doctor() {
   else
     ck FAIL 1 "no NVMe device visible — check BIOS VMD/RST (LOOK, don't toggle: PLAN.md V16)"
   fi
-  if command -v lspci >/dev/null 2>&1 && lspci 2>/dev/null | grep -qi 'volume management device'; then
+  # Captured, then matched. `lspci | grep -qi ...` under this script's pipefail
+  # can return 141: grep exits at the first match and lspci takes SIGPIPE on the
+  # rest of its output, turning a successful match into a reported failure.
+  # (system/lib.sh's out_matches carries the full explanation; duo is
+  # deliberately self-contained and does not source it.)
+  local vmd_out=""
+  if command -v lspci >/dev/null 2>&1; then
+    vmd_out="$(lspci 2>/dev/null || true)"
+  fi
+  if grep -qi 'volume management device' <<<"$vmd_out"; then
     ck INFO 0 "Intel VMD controller present (NVMe is behind VMD; fine if the disk is visible)"
   fi
 

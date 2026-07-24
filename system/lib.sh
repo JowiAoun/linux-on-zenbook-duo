@@ -130,12 +130,70 @@ apt_update() {
   fi
   local out
   out="$(apt-get update 2>&1)" || true
-  if printf '%s\n' "$out" | grep -qE '^(Hit|Get):'; then
+  if out_matches "$out" -E '^(Hit|Get):'; then
     log "apt package lists refreshed"
   else
     warn "apt-get update could not reach any repository:"
     printf '%s\n' "$out" | grep -E '^(Err|E:|W:)' | sed 's/^/    /' >&2 || true
   fi
+}
+
+# True iff <text> contains a line matching the grep expression that follows.
+#
+#   out_matches "$out" -E '^(Hit|Get):'
+#   out_matches "$groups" -x docker
+#   out_matches "$state" -i 'SecureBoot enabled'
+#
+# Use this instead of `cmd | grep -q ...`. This file sets `pipefail`, and
+# `grep -q` exits at the FIRST match — which can SIGPIPE a writer that still has
+# output to produce, so the pipeline returns 141 and a SUCCESSFUL match is
+# reported as a failure. It is a race against the writer's buffering, not a size
+# threshold: `apt-cache policy <pkg>` prints six lines and still loses it, which
+# is how a published package came to read as "not published here" in both
+# 25-memory.sh and 20-kernel.sh. Measured:
+#
+#   $ bash -c 'set -euo pipefail; dpkg -l | grep -q "^ii"'; echo $?
+#   141
+#
+# Capturing first and matching here is immune: bash backs a herestring with a
+# temp file, so there is no writer left for grep to hang up on.
+out_matches() { # <text> <grep-arg...>
+  local text="$1"
+  shift
+  grep -q "$@" <<<"$text"
+}
+
+# Install a generated config file iff its content differs.
+#
+# Returns 0 ("true") when it wrote, 1 when the file was already correct, so a
+# caller can pay for a reload only when one is needed:
+#
+#   if install_conf "$path" "$body"; then systemctl daemon-reload; fi
+#
+# ALWAYS call it in a conditional context — a bare call returning 1 would abort
+# the script under `set -e`. Parent directories are created; mode is 0644
+# root:root. Anything wanting different ownership, a validation step before the
+# file lands, or a "did dome write this?" marker check should still hand-roll it
+# (see 85-apparmor-userns.sh and 55-touchpad-quirks.sh).
+install_conf() { # <path> <content>
+  local path="$1" body="$2" tmp
+  if [ -f "$path" ] && [ "$(cat "$path")" = "$body" ]; then
+    log "up to date: $path"
+    return 1
+  fi
+  if [ "$DRY_RUN" = 1 ]; then
+    log "DRY RUN: would write $path"
+    mark_change
+    return 0
+  fi
+  log "writing $path"
+  install -d -o root -g root -m 0755 "$(dirname "$path")"
+  tmp="$(mktemp)"
+  printf '%s\n' "$body" > "$tmp"
+  install -o root -g root -m 0644 "$tmp" "$path"
+  rm -f "$tmp"
+  mark_change
+  return 0
 }
 
 # Append a line to a file iff it isn't there verbatim.
