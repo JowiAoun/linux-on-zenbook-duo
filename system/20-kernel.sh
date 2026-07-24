@@ -23,12 +23,29 @@ HWE="linux-generic-hwe-${VERSION_ID:-24.04}"
 # before installing, because ensure_pkg would let apt's "no such package" abort
 # the entire system layer over a package that is only ever an optimisation.
 #
-# `Candidate: [^([:space:]]` and not just "is it listed": apt-cache policy also
-# prints a stanza for virtual and dropped packages, with `Candidate: (none)`.
-if apt-cache policy "$HWE" 2>/dev/null | grep -qE '^[[:space:]]+Candidate: [^([:space:]]'; then
+# "Published" takes two signals, not one:
+#   - pkg_installed: a kernel the machine may be booted on RIGHT NOW is
+#     self-evidently published — never warn that it "isn't available".
+#   - apt-cache policy Candidate: matched as `[^([:space:]]`, not mere presence,
+#     because apt prints a stanza for virtual/dropped packages too, with
+#     `Candidate: (none)`.
+# apt-cache policy ALSO reads (none) when the package lists are stale or a mirror
+# was unreachable during 10-apt-base's `apt-get update` — which is how a
+# published (even the running) kernel gets misreported as "not published yet".
+# So if the first look comes up empty, refresh the lists once and look again
+# before concluding the stack is genuinely absent.
+hwe_available() {
+  pkg_installed "$HWE" \
+    || apt-cache policy "$HWE" 2>/dev/null | grep -qE '^[[:space:]]+Candidate: [^([:space:]]'
+}
+
+if ! hwe_available; then apt_update; fi
+
+if hwe_available; then
   ensure_pkg "$HWE"
 else
   warn "$HWE is not published — no HWE stack for Ubuntu ${VERSION_ID:-unknown} yet"
+  warn "  (if a mirror was unreachable above, the lists may simply be stale)"
   warn "  staying on the GA kernel, which on a fresh LTS is the newest one anyway"
   warn "  re-run 'sudo make system' after the first point release to pick it up"
 fi
