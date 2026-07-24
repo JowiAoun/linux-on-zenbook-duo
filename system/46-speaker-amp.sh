@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 46-duo-speaker-amp.sh — [zenbook-duo hosts only] recover the Cirrus CS35L41
-# smart amplifiers when they lose the power-up handshake at boot.
+# 46-duo-speaker-amp.sh — [zenbook-duo hosts only] detect the Cirrus CS35L41
+# smart amplifiers losing their power-up handshake, and say so loudly.
 #
 # The Duo's speakers are not driven by the ALC294 codec alone: two CS35L41
 # amplifiers sit behind it (…-cs35l41-hda.0 = left, .1 = right) running ASUS's
@@ -21,18 +21,56 @@
 # the rest of the boot, failing again on every subsequent playback. It is a
 # race, not a misconfiguration: measured 2026-07-23, eight failures on one boot
 # with the four boots before it completely clean. Nothing in userspace causes it
-# and nothing in userspace can paper over it; EasyEffects, PulseAudio volumes
-# and the SOF topology are all downstream of the damage.
+# and nothing in userspace can compensate: EasyEffects, the PipeWire volumes and
+# the SOF topology are all downstream of the damage, which is why toggling any
+# of them makes no audible difference.
 #
-# Re-binding the SPI devices re-runs the whole init — firmware load and
-# calibration included — so the recovery is to watch the kernel log for that
-# message and re-bind when it shows up. The watcher also checks the log once at
-# startup, because the usual case is that the failure has already happened by
-# the time anything gets a chance to run.
+# ── The actual cause, and the actual fix ──────────────────────────────────────
+# This machine dual-boots: nvme0n1p3 is a BitLocker Windows install, with the
+# ASUS RECOVERY and MYASUS partitions and \EFI\Microsoft on the ESP. That is the
+# known trigger for PUP_DONE timeouts on CS35L41 laptops. Windows Fast Startup
+# does not really power the machine down — "Shut down" hibernates the kernel
+# session — so the amps are left initialised by the Windows driver and Linux
+# inherits hardware it cannot cleanly bring up. It fits the observed pattern
+# exactly: boots that follow a clean Linux shutdown come up fine, boots that
+# follow Windows do not.
 #
-# Deliberately conservative: a cooldown and a per-boot cap, because if a re-bind
-# does not take then the next one will not either, and a watcher that reacts to
-# the messages its own re-bind produces would spin forever.
+# THE FIX IS ON THE WINDOWS SIDE and cannot be applied from here — the system
+# partition is BitLocker-encrypted, so the HiberbootEnabled registry key is not
+# reachable from Linux. In an Administrator command prompt on Windows:
+#
+#     powercfg /h off
+#
+# which disables hibernation and Fast Startup with it. After that, use "Shut
+# down" rather than "Restart" when crossing between the two systems.
+#
+# Kernel-side there is nothing left to configure: the ASUS SSID quirks for
+# CSC3551 landed upstream in 6.7 and this machine runs 7.0, so the SSDT/ACPI
+# patching that older guides describe is obsolete here — the amps bind with the
+# right BST/CH/SPKID and load the right firmware, as the log above shows.
+#
+# ── Why this does not try to repair the amps (VERIFIED THE HARD WAY) ──────────
+# The tempting repair is to re-bind the SPI devices so the driver re-runs init.
+# DO NOT. The driver does not tear its ALSA controls down on unbind, so the
+# re-bind collides with the ones still registered (tried 2026-07-23, on the very
+# boot described above):
+#
+#   cs35l41-hda …hda.0: Failed to add KControl L0 DSP1 Firmware Type = -16
+#   snd_hda_codec_alc269 ehdaudio0D0: failed to bind …hda.0 …: -16
+#   snd_hda_codec_alc269 ehdaudio0D0: adev bind failed: -16
+#   cs35l41-hda …hda.1: error -EBUSY: Register component failed
+#   cs35l41-hda …hda.1: probe with driver cs35l41-hda failed with error -16
+#   cs35l41-hda …hda.1: IRQ sync failed to resume: -13   (repeating)
+#
+# That is strictly worse than the fault it was meant to fix: the left amp came
+# back but failed to attach to the codec, and the right one did not probe at
+# all. Reloading the modules is no better — the documented advice is to reload
+# only when the bus is clean, which is exactly what it is not once this has
+# happened. A cold power-off is the only reliable recovery.
+#
+# So this component does not claim to fix anything. It names the fault the
+# moment it happens, so a bad boot is thirty seconds of "power off properly"
+# instead of an evening of wondering why music sounds wrong today.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source ./lib.sh
@@ -44,127 +82,142 @@ if ! is_duo_host; then
   exit 0
 fi
 
-HEAL_DST=/usr/local/sbin/duo-cs35l41-heal
-UNIT_DST=/etc/systemd/system/duo-cs35l41-heal.service
+CHECK_DST=/usr/local/sbin/duo-cs35l41-check
+UNIT_DST=/etc/systemd/system/duo-cs35l41-check.service
 
-tmp_heal="$(mktemp)"
+# An earlier revision of this script shipped a re-binding "healer" under a
+# different name. Remove it rather than leave a working copy of a command that
+# breaks the sound card.
+OLD_HEAL=/usr/local/sbin/duo-cs35l41-heal
+OLD_UNIT=/etc/systemd/system/duo-cs35l41-heal.service
+if [ -e "$OLD_UNIT" ] || [ -e "$OLD_HEAL" ]; then
+  log "removing the superseded re-binding healer"
+  if [ "$DRY_RUN" != 1 ]; then
+    systemctl disable --now duo-cs35l41-heal.service >/dev/null 2>&1 || true
+    rm -f "$OLD_UNIT" "$OLD_HEAL"
+    systemctl daemon-reload
+  fi
+fi
+
+DUO_USER="$(target_user)" || die "cannot determine the target user — set environment.username in user-config.nix or run via sudo from your own account"
+id "$DUO_USER" >/dev/null 2>&1 || die "user '$DUO_USER' does not exist on this machine"
+
+tmp_check="$(mktemp)"
 tmp_unit="$(mktemp)"
-trap 'rm -f "$tmp_heal" "$tmp_unit"' EXIT
+trap 'rm -f "$tmp_check" "$tmp_unit"' EXIT
 
-cat > "$tmp_heal" <<'HEAL'
+cat > "$tmp_check" <<'CHECK'
 #!/usr/bin/env bash
-# duo-cs35l41-heal — re-bind the Zenbook Duo's CS35L41 speaker amplifiers after
-# a failed power-up. Installed by dome's system/46-duo-speaker-amp.sh.
+# duo-cs35l41-check — report when the Zenbook Duo's CS35L41 speaker amplifiers
+# fail their power-up handshake, leaving the speakers running without the amp
+# DSP (harsh and distorted for the rest of the boot).
 #
-#   duo-cs35l41-heal            re-bind once, now
-#   duo-cs35l41-heal --watch    follow the kernel log and re-bind on failure
+# Installed by dome's system/46-duo-speaker-amp.sh. See that file for why this
+# only reports: re-binding the driver to repair it makes the sound card worse.
+#
+#   duo-cs35l41-check            report on this boot; exit 1 if affected
+#   duo-cs35l41-check --watch    report now, then keep watching the kernel log
 set -euo pipefail
 
-DRV=/sys/bus/spi/drivers/cs35l41-hda
 PATTERN='Failed waiting for CS35L41_PUP_DONE_MASK'
-STAMP=/run/duo-cs35l41-heal.stamp
-COUNT=/run/duo-cs35l41-heal.count
-COOLDOWN=120     # seconds between re-binds
-MAX_PER_BOOT=3   # after this many, stop and leave the evidence alone
+NOTIFIED=/run/duo-cs35l41-check.notified
+DUO_USER='@TARGET_USER@'
 
-log() { printf 'duo-cs35l41-heal: %s\n' "$*"; }
+log() { printf 'duo-cs35l41-check: %s\n' "$*"; }
 
-# The driver directory also holds bind/unbind/module/uevent, so match on the
-# device naming rather than listing everything in it.
-devices() {
-  local p
-  for p in "$DRV"/*cs35l41-hda.*; do
-    [ -e "$p" ] || continue
-    basename "$p"
-  done
+# `grep -q` would exit at the first match, SIGPIPE journalctl, and — under
+# `set -o pipefail` — make the whole pipeline report failure on the one input
+# that should return success. Count instead, so the reader drains its input.
+affected() {
+  local hits
+  hits="$(journalctl -k -b --no-pager 2>/dev/null | grep -c "$PATTERN" || true)"
+  [ "${hits:-0}" -gt 0 ]
 }
 
-rebind() {
-  local force="${1:-}" now last count devs=()
+# One desktop notification per boot. Best effort throughout: a missing
+# notify-send or a session that is not up yet must never take the unit down,
+# since the journal message below is the real output.
+notify_once() {
+  [ -e "$NOTIFIED" ] && return 0
+  # 2>/dev/null FIRST: redirections are applied left to right, so with the
+  # order reversed the shell's own "Permission denied" for the failed open
+  # escapes before stderr has been silenced.
+  : 2>/dev/null > "$NOTIFIED" || true
 
-  [ -d "$DRV" ] || { log "driver not loaded ($DRV missing) — nothing to do"; return 0; }
+  local uid bus
+  uid="$(id -u "$DUO_USER" 2>/dev/null)" || return 0
+  bus="/run/user/$uid/bus"
+  [ -S "$bus" ] || return 0
+  command -v notify-send >/dev/null 2>&1 || return 0
 
-  # Names must be collected BEFORE unbinding: the symlinks vanish from the
-  # driver directory the moment a device is unbound, and then there is nothing
-  # left to name in the bind step.
-  mapfile -t devs < <(devices)
-  if [ ${#devs[@]} -eq 0 ]; then
-    log "no CS35L41 devices bound to the driver — nothing to do"
-    return 0
-  fi
+  runuser -u "$DUO_USER" -- env "DBUS_SESSION_BUS_ADDRESS=unix:path=$bus" \
+    notify-send -u critical -a "Speaker amplifiers" \
+      "Speakers are running unprotected" \
+      "The CS35L41 amplifiers failed to power up this boot, so audio will sound harsh and distorted. Fix: shut down fully (not a reboot). To stop it recurring, run 'powercfg /h off' as Administrator in Windows to disable Fast Startup." \
+    >/dev/null 2>&1 || true
+}
 
-  now="$(date +%s)"
-  if [ "$force" != --force ]; then
-    last="$(cat "$STAMP" 2>/dev/null || echo 0)"
-    if [ $((now - last)) -lt "$COOLDOWN" ]; then
-      log "re-bound $((now - last))s ago, inside the ${COOLDOWN}s cooldown — skipping"
-      return 0
-    fi
-    count="$(cat "$COUNT" 2>/dev/null || echo 0)"
-    if [ "$count" -ge "$MAX_PER_BOOT" ]; then
-      log "already re-bound ${count}x this boot and it is still failing — giving up"
-      log "the amps need a power cycle (full shutdown, not a warm reboot)"
-      return 0
-    fi
-  fi
-
-  count="$(cat "$COUNT" 2>/dev/null || echo 0)"
-  printf '%s\n' "$now" > "$STAMP"
-  printf '%s\n' "$((count + 1))" > "$COUNT"
-
-  log "re-binding: ${devs[*]}"
-  local d
-  for d in "${devs[@]}"; do
-    printf '%s\n' "$d" > "$DRV/unbind" 2>/dev/null || log "unbind $d failed"
-  done
-  sleep 1
-  for d in "${devs[@]}"; do
-    printf '%s\n' "$d" > "$DRV/bind" 2>/dev/null || log "bind $d failed"
-  done
-  log "re-bind issued (attempt $((count + 1))/${MAX_PER_BOOT}) — check for a fresh"
-  log "'Firmware Loaded' / 'CS35L41 Bound' pair in dmesg"
+report() {
+  log "the CS35L41 amplifiers failed their power-up handshake this boot"
+  log "speakers are playing WITHOUT the amp DSP — expect harsh, distorted sound"
+  log ""
+  log "recover now:  a full power-off (shutdown -h now), NOT a warm reboot —"
+  log "              the amps hold state across a warm one"
+  log "stop it recurring:  this machine dual-boots, and Windows Fast Startup"
+  log "              leaves the amps in a state Linux cannot initialise. In an"
+  log "              Administrator prompt on Windows:  powercfg /h off"
+  log "              then use Shut down rather than Restart between systems."
+  log ""
+  log "do NOT re-bind or reload the driver to fix this: it leaves the codec"
+  log "unable to attach and the right amp unprobed. See system/46-duo-speaker-amp.sh"
+  notify_once
 }
 
 watch_journal() {
   # The failure normally happens during boot, well before this unit is up, so
   # the backlog matters more than the live stream.
-  if journalctl -k -b --no-pager 2>/dev/null | grep -q "$PATTERN"; then
-    log "this boot already logged a power-up failure"
-    rebind
+  if affected; then
+    report
   else
-    log "no power-up failure in this boot's log — watching"
+    log "amplifiers powered up cleanly this boot — watching"
   fi
 
   journalctl -k -f -n0 -o cat 2>/dev/null | while IFS= read -r line; do
     case "$line" in
-      *"$PATTERN"*)
-        log "kernel reported a power-up failure"
-        rebind
-        ;;
+      *"$PATTERN"*) report ;;
     esac
   done
 }
 
 case "${1:-}" in
   --watch) watch_journal ;;
-  --force) rebind --force ;;
-  "")      rebind ;;
-  *)       echo "usage: duo-cs35l41-heal [--watch|--force]" >&2; exit 2 ;;
+  "")
+    if affected; then
+      report
+      exit 1
+    fi
+    log "amplifiers powered up cleanly this boot"
+    ;;
+  *) echo "usage: duo-cs35l41-check [--watch]" >&2; exit 2 ;;
 esac
-HEAL
+CHECK
+
+# The username is fixed at install time, the same way 50-duo-sudoers.sh binds
+# its rule to one account rather than resolving one at runtime.
+sed -i "s|@TARGET_USER@|$DUO_USER|" "$tmp_check"
 
 cat > "$tmp_unit" <<'UNIT'
 [Unit]
-Description=Recover the Zenbook Duo CS35L41 speaker amps after a failed power-up
+Description=Report Zenbook Duo CS35L41 speaker amplifier power-up failures
 Documentation=https://github.com/JowiAoun/dome
 After=sound.target
 Wants=sound.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/sbin/duo-cs35l41-heal --watch
+ExecStart=/usr/local/sbin/duo-cs35l41-check --watch
 # The watcher is a journalctl pipe; if that ever dies, resume watching rather
-# than leaving the machine one bad boot away from unprotected speakers.
+# than silently going blind to the next bad boot.
 Restart=always
 RestartSec=5
 
@@ -174,11 +227,11 @@ UNIT
 
 changed=0
 
-if cmp -s "$tmp_heal" "$HEAL_DST" 2>/dev/null; then
-  log "healer up to date: $HEAL_DST"
+if cmp -s "$tmp_check" "$CHECK_DST" 2>/dev/null; then
+  log "checker up to date: $CHECK_DST"
 else
-  log "installing $HEAL_DST"
-  run install -o root -g root -m 0755 "$tmp_heal" "$HEAL_DST"
+  log "installing $CHECK_DST"
+  run install -o root -g root -m 0755 "$tmp_check" "$CHECK_DST"
   changed=1
 fi
 
@@ -191,12 +244,12 @@ else
 fi
 
 if [ "$DRY_RUN" = 1 ]; then
-  log "DRY RUN: would enable duo-cs35l41-heal.service"
+  log "DRY RUN: would enable duo-cs35l41-check.service"
 elif [ "$changed" = 1 ]; then
   systemctl daemon-reload
-  systemctl enable --now duo-cs35l41-heal.service
-  log "duo-cs35l41-heal.service enabled"
+  systemctl enable --now duo-cs35l41-check.service
+  log "duo-cs35l41-check.service enabled"
 else
-  systemctl enable --now duo-cs35l41-heal.service >/dev/null 2>&1 || true
-  log "duo-cs35l41-heal.service already installed"
+  systemctl enable --now duo-cs35l41-check.service >/dev/null 2>&1 || true
+  log "duo-cs35l41-check.service already installed"
 fi
