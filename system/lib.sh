@@ -79,6 +79,22 @@ config_str() {
     "$DOME_ROOT/user-config.nix" | head -n1
 }
 
+# The value of an UNQUOTED integer field in user-config.nix, or 0. Separate from
+# config_str because a Nix number carries no quotes, and separate from
+# config_flag because the value matters, not just its truthiness.
+#
+# Prints 0 for a missing file, a missing key, or anything that is not a run of
+# digits — so a caller can compare numerically without first checking that it
+# got a number at all, and a typo turns the feature OFF rather than into an
+# arithmetic syntax error halfway through a provisioning run.
+config_num() {
+  [ -f "$DOME_ROOT/user-config.nix" ] || { echo 0; return 0; }
+  local v
+  v="$(sed -nE "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*([0-9]+);.*/\1/p" \
+        "$DOME_ROOT/user-config.nix" | head -n1)"
+  echo "${v:-0}"
+}
+
 # The human user the duo tooling belongs to:
 # user-config.nix username > the user who invoked sudo > failure.
 target_user() {
