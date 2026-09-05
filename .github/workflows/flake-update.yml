@@ -1,0 +1,31 @@
+name: update-flake-lock
+
+# Keeps flake.lock (nixpkgs + home-manager) from going stale. Weekly, or by
+# hand; opens a PR so CI reviews the bump before anything lands.
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      # Pinned to a commit SHA, not @main: this runs unattended with write
+      # permissions, so a floating ref would execute whatever landed upstream.
+      - uses: DeterminateSystems/update-flake-lock@834c491b2ece4de0bbd00d85214bb5e83b4da5c6  # v28
+        with:
+          pr-title: "chore(flake): update flake.lock"
+          commit-msg: "chore(flake): update flake.lock"
+          pr-labels: |
+            dependencies
+            automated

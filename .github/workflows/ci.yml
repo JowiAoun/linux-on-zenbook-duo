@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shell:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash syntax
+        run: bash -n bin/duo helper/zenduo-helper install.sh uninstall.sh lib/conf.sh system/*.sh tests/*.sh
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck -x bin/duo helper/zenduo-helper install.sh uninstall.sh lib/conf.sh system/*.sh tests/*.sh
+      # Behavioural tests of the helpers. shellcheck passes on a script whose
+      # detection helper returns the wrong answer — that is exactly how the
+      # pipefail/SIGPIPE bug shipped. Under sudo so the root-only cases run.
+      - name: lib tests
+        run: sudo bash tests/test-lib.sh
+      - name: install.sh dry run refuses foreign hardware without --force
+        run: |
+          if ./install.sh --dry-run --user; then echo "user half dry run ok"; else exit 1; fi
+          if ./install.sh --dry-run --system 2>/dev/null; then echo "should have refused a non-Duo runner" >&2; exit 1; fi
+      - name: system layer dry run on foreign hardware (--force)
+        run: sudo bash system/run.sh --dry-run --force --user runner
+      - name: CLI runs read-only commands anywhere
+        run: |
+          bin/duo version
+          bin/duo config show
+          bin/duo doctor || true   # a non-Duo runner fails the gate on purpose; it must not crash
+
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: bytecompile
+        run: python3 -m py_compile lib/*.py tests/*.py
+      - name: unit tests (without PyGObject — the layout maths must not need it)
+        run: python3 -m unittest discover -s tests -v
+      - name: unit tests (with PyGObject, the interpreter `duo` pins on Ubuntu)
+        run: |
+          sudo apt-get install -y -qq python3-gi
+          /usr/bin/python3 -m unittest discover -s tests -v
+      - name: committed preset matches the generator
+        run: diff <(python3 lib/speaker_dsp.py preset) presets/easyeffects/duo-speakers.json
+
+  nix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: build the package and evaluate the home-manager module
+        run: nix flake check --print-build-logs
+      - name: the packaged CLI runs
+        run: nix run . -- version
+
+  hygiene:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
