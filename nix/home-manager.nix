@@ -38,6 +38,9 @@ let
     Service = {
       ExecStart = "${cfg.duoBin} ${sub}";
       Environment = daemonEnv;
+      # Everything zenduo logs is under one journal identifier, so `duo log`
+      # shows the daemons' output too (checked by the flake's hm-units check).
+      SyslogIdentifier = "zenduo";
       Restart = "on-failure";
       RestartSec = 3;
     };
@@ -217,6 +220,7 @@ in
           Service = {
             Type = "oneshot";
             ExecStart = "${cfg.duoBin} bat-limit ${toString cfg.batteryLimit}";
+            SyslogIdentifier = "zenduo";
           };
           Install.WantedBy = [ "default.target" ];
         };

@@ -41,7 +41,21 @@ HELPER=/usr/local/sbin/zenduo-helper
 
 USER_FEATURES="watch-displays watch-fn watch-backlight watch-rotation bat-limit"
 
-log() { printf '[%s] %s\n' "$TAG" "$*"; logger -t "$TAG" -- "$*" 2>/dev/null || true; }
+# Under a systemd unit stdout already IS the journal (the units set
+# SyslogIdentifier=zenduo), so a logger copy would appear twice. JOURNAL_STREAM
+# is "device:inode" of that stream (systemd.exec(5)); compare it with our own
+# stdout/stderr rather than trusting the variable alone, because a child whose
+# output was redirected elsewhere inherits it too.
+# /proc/$$: inside the $(...) the fds of "self" are the substitution's pipe.
+journal_is_stdio() {
+  [ -n "${JOURNAL_STREAM:-}" ] || return 1
+  [ "$(stat -Lc '%d:%i' "/proc/$$/fd/1" 2>/dev/null)" = "$JOURNAL_STREAM" ] \
+    || [ "$(stat -Lc '%d:%i' "/proc/$$/fd/2" 2>/dev/null)" = "$JOURNAL_STREAM" ]
+}
+log() {
+  printf '[%s] %s\n' "$TAG" "$*"
+  journal_is_stdio || logger -t "$TAG" -- "$*" 2>/dev/null || true
+}
 
 usage() {
   cat <<'USAGE'
@@ -817,7 +831,7 @@ cmd_report() {
   cmd_config show || true
   echo
   echo "== zenduo journal (last 100) =="
-  journalctl --user -t "$TAG" -n 100 --no-pager 2>/dev/null || echo "(journal unavailable)"
+  journalctl --user -t "$TAG" -t duo -n 100 --no-pager 2>/dev/null || echo "(journal unavailable)"
   echo
   echo "== daemon journals (last 40 each) =="
   local f
@@ -862,7 +876,9 @@ case "$cmd" in
   fn-map)             cmd_fn_map "$@" ;;
   watch-input)        cmd_watch_input "$@" ;;
   report)             cmd_report "$@" ;;
-  log)                journalctl --user -t "$TAG" -f ;;
+  # -t duo: units installed before the templates set SyslogIdentifier log the
+  # daemons' stdout under the executable's name.
+  log)                journalctl --user -t "$TAG" -t duo -n 50 -f ;;
   version|--version)  cat "$DUO_ROOT/VERSION" 2>/dev/null || echo dev ;;
   help|-h|--help|*)   usage ;;
 esac

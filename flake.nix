@@ -27,11 +27,10 @@
       default = zenduo;
     };
 
-    checks.${system} = {
-      package = self.packages.${system}.zenduo;
+    checks.${system} = let
       # The module must evaluate with every feature on. This is what catches a
       # broken option or attribute before a user's `home-manager switch` does.
-      hm-module = (home-manager.lib.homeManagerConfiguration {
+      hm = home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         modules = [
           self.homeManagerModules.default
@@ -48,7 +47,21 @@
             };
           }
         ];
-      }).activationPackage;
+      };
+    in {
+      package = self.packages.${system}.zenduo;
+      hm-module = hm.activationPackage;
+      # Every generated unit logs under the zenduo identifier, or `duo log`
+      # misses the daemons (that was the case until 2026-09-05).
+      hm-units = pkgs.runCommand "zenduo-hm-units" { } ''
+        n=0
+        for u in ${hm.config.home-files}/.config/systemd/user/duo-*.service; do
+          grep -q '^SyslogIdentifier=zenduo$' "$u" || { echo "$u lacks SyslogIdentifier=zenduo" >&2; exit 1; }
+          n=$((n + 1))
+        done
+        [ "$n" -eq 5 ] || { echo "expected 5 duo-* units, found $n" >&2; exit 1; }
+        touch "$out"
+      '';
     };
 
     devShells.${system}.default = pkgs.mkShell {

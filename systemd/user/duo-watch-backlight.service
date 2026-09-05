@@ -8,6 +8,9 @@ PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
+# One identifier for every zenduo process, so `duo log` (journalctl -t zenduo)
+# shows the daemons' output and not only what bin/duo sent through logger.
+SyslogIdentifier=zenduo
 Type=simple
 ExecStart=/usr/local/bin/duo watch-backlight
 Restart=on-failure

@@ -110,8 +110,11 @@ class Dispatcher:
             # indistinguishable from a key that never arrived, which is exactly
             # the hole that made "the media keys stopped working" so hard to
             # place. reap() surfaces whatever the command complained about.
+            # stdout is inherited: under the unit it is the journal, and `duo`
+            # skips its own logger copy when it sees that, so each line of
+            # "synced ... -> ..." / "enabled eDP-2" lands exactly once.
             self.children.append((subprocess.Popen(
-                argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE), argv))
+                argv, stderr=subprocess.PIPE), argv))
         except OSError as e:
             log(f"failed to run {argv[0]}: {e}")
 

@@ -162,6 +162,16 @@ conf_set APPLY_METHOD temporary
 is "conf_set creates the file from defaults" "$(grep -c '^APPLY_METHOD=temporary' "$ZENDUO_CONF")" "1"
 rm -rf "$(dirname "$ZENDUO_CONF")"
 
+# ── systemd unit templates ────────────────────────────────────────────────────
+# Without SyslogIdentifier the daemons' stdout is filed under the executable's
+# name ("duo") and `duo log` (-t zenduo) showed none of it (2026-09-05: 600
+# watch-fn lines under "duo", zero under "zenduo"). The home-manager module is
+# covered by the flake's hm-units check.
+group "systemd unit templates"
+for f in systemd/user/duo-*.service; do
+  is "$(basename "$f") logs under the zenduo identifier" "$(grep -c '^SyslogIdentifier=zenduo$' "$f")" 1
+done
+
 # ── install.sh: flags must survive the runuser round trip ────────────────────
 # As root, install.sh re-runs itself under runuser for the user half. Its
 # parser starts from the defaults, so the flags have to travel as arguments:

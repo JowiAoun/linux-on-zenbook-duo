@@ -65,7 +65,6 @@ import os
 import signal
 import subprocess
 import sys
-import syslog
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -98,11 +97,9 @@ DUO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 
 def log(msg):
+    # stdout is the journal under the unit's SyslogIdentifier=zenduo; a
+    # syslog() copy used to land there a second time under the same identifier.
     print(f"watch-displays: {msg}", flush=True)
-    try:
-        syslog.syslog(msg)  # so `duo log` (journalctl -t zenduo) shows it too
-    except OSError:
-        pass
 
 
 class Watcher:
@@ -408,7 +405,6 @@ def main(argv):
     if extra:
         print(__doc__, file=sys.stderr)
         return 64
-    syslog.openlog("zenduo")
     watcher = Watcher()
     return watcher.run_once() if once else watcher.run()
 
