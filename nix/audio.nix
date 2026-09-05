@@ -87,7 +87,7 @@
 # Starting point, not gospel. `speakerDsp = false` reverts cleanly. Voicing EQ
 # is the knob left deliberately unset: the response above is not calibrated
 # enough to derive a corrective curve from, so tune one by ear in the GUI and
-# copy the numbers here rather than trusting the mic.
+# copy the numbers into lib/speaker_dsp.py rather than trusting the mic.
 #
 # ── THE TRAP: a db enum is an INTEGER, and the wrong value is SILENT ──────────
 # EasyEffects has two serialisations of the same setting and they DO NOT AGREE.
@@ -100,9 +100,9 @@
 # Seed `type=High-pass` into the db and EE drops it and keeps the plugin's
 # default — which for Filter is a LOW-pass. That is not a hypothetical: it was
 # measured on this machine as a 24 dB cut at 1 kHz with the bass *boosted* 13 dB,
-# and nothing anywhere logged a complaint. Every enum below is therefore an
-# integer, with the label in a comment, and `filterType` names the one that
-# matters. Filter's own type list is
+# and nothing anywhere logged a complaint. Every enum in the db is therefore
+# an integer, with the label alongside it in lib/speaker_dsp.py, which is where
+# the chain now lives. Filter's own type list is
 #   0 Low-pass  1 High-pass  2 Low-shelf  3 High-shelf  4 Band-pass
 #   5 Ladder-rejection  6 All-pass
 # and note it is NOT the Equalizer's list, which spells the same concept
@@ -136,69 +136,25 @@
 # ~/.config/easyeffects/db/ — `plugins=...` in easyeffectsrc plus one rc file
 # per plugin — which EE reads on start and rewrites on a clean exit. On a
 # machine whose db has never seen the preset (a fresh install, i.e. exactly what
-# this repo exists to produce) `--load-preset` on the daemon's own argv is a
-# silent no-op. A client-side `easyeffects -l <preset>` against the already
-# running daemon does work, which is why this file used to carry an
-# ExecStartPost that waited for the daemon's socket and then issued one.
+# this module exists to produce) `--load-preset` on the daemon's own argv is a
+# silent no-op.
 #
-# Seeding the db directly is strictly better and is what happens now: one
-# mechanism that works on a fresh machine and an established one alike, no
-# daemon-readiness polling or Qt client round-trip, and it makes this file the
-# source of truth on *every* start instead of only the first.
+# So the db is seeded directly, before every start, by `duo speaker-dsp seed`
+# (lib/speaker_dsp.py). That script is the ONE definition of the chain — the
+# integer-enum db files and the label-enum preset JSON both come out of it, and
+# a unit test asserts the committed preset matches. The chain, with the
+# reasoning for every number, is in that file; the measurements are above.
 #
 # Consequence worth knowing: tweaking the chain in the EasyEffects GUI lasts for
 # the session and EE will persist it to its db on a clean exit, but ExecStartPre
 # overwrites that at the next start — so tune by ear in the GUI, then copy the
-# numbers into `pluginDb` below.
+# numbers into lib/speaker_dsp.py and run `make preset`.
 { config, lib, pkgs, ... }:
 
 let
   cfg = config.zenduo;
 
   presetName = "duo-speakers";
-
-  # Order IS the signal chain. Each entry becomes one PipeWire filter node named
-  # ee_soe_<plugin> when the chain is up, which is how you check it is running:
-  #   pw-dump | grep ee_soe_
-  outputPlugins = [ "filter#0" "bass_enhancer#0" "compressor#0" "limiter#0" ];
-
-  # Filter type. INTEGER in the db, label in the preset — see THE TRAP above.
-  filterType = { highPass = 1; };
-
-  # Filter slope, also an integer, and the one setting here whose label spelling
-  # could not be established: the binary carries no x1..x4 strings, and putting
-  # "24 dB/oct" in a preset made EE drop the key rather than store it (frequency
-  # and type from the same object persisted fine). So this value is measured,
-  # not read off a label — 0 is the default and is a NO-OP, and 2 gives the
-  # skirt tabulated below. That is also why the shipped preset cannot express
-  # it: load the preset in the GUI and you get a flat filter. The db is
-  # authoritative; the preset is illustrative.
-  filterSlope = 2;
-
-  # Corner of the high-pass, in Hz. Chosen against BOTH measured curves, not
-  # picked off the acoustic one alone, because this filter's skirt is broad and
-  # the compressor behind it partially fills the skirt back in.
-  #
-  # At 180 Hz the chain was still 8.0 dB down at 250 Hz and 4.7 dB down at
-  # 400 Hz — well inside the band where the drivers do work (250 Hz is only
-  # −13.7 dB acoustically, 400 Hz −4.4 dB), so it audibly thins the warmth
-  # region. At 120 Hz, measured through the full chain relative to its own
-  # passband:
-  #
-  #      50 Hz  −23.6      120 Hz   −7.6      315 Hz   −2.9
-  #      63     −17.5      160      −4.5      400      −2.3
-  #      80     −13.0      200      −3.2      630      −1.0
-  #     100      −9.8      250      −2.9      1k       −0.4
-  #
-  # i.e. the sub-bass the drivers cannot reproduce is gone while 250 Hz and up
-  # is within 3 dB. Broadband output is unchanged by the move (+3.25 dB vs
-  # +3.60 dB at typical program level), so the mid-bass is bought for nothing.
-  #
-  # Honest caveat: freeing excursion is meant to keep the CS35L41 protection DSP
-  # out of the signal, and THAT part is standard practice plus theory — an A/B
-  # on the internal mic could not resolve it above the noise, so do not treat it
-  # as measured here. The corner choice itself is.
-  highPassHz = 120;
 
   # EasyEffects 8 is a Qt application even in service mode: with no display it
   # cannot initialise a platform plugin and aborts (SIGABRT, "Could not load the
@@ -225,130 +181,6 @@ let
     exit 0
   '';
 
-  # The db files EasyEffects restores its chain from. These, not the preset
-  # JSON, are the working mechanism — see the header. Keys are the plugin's
-  # camelCase property names (the preset's kebab-case names with the hyphens
-  # dropped), and only non-defaults need to be listed. The group header and the
-  # rc file name were both read back off a real EE clean exit rather than
-  # guessed; EE writes `bassEnhancerrc`, not `bass_enhancerrc`.
-  pluginDb = {
-    # 1. High-pass. Everything below is excursion the drivers spend for nothing.
-    #    `slope` is not optional here: leave it out and the filter is a no-op
-    #    that measures FLAT — which is exactly how the first cut of this chain
-    #    shipped a high-pass that did nothing at all.
-    filterrc = {
-      group = "[soe][Filter#0]";
-      settings = {
-        type = filterType.highPass;
-        frequency = highPassHz;
-        slope = filterSlope;
-      };
-    };
-
-    # 2. Bass psychoacoustics. Sits AFTER the high-pass on purpose: it adds
-    #    harmonics of the fundamentals just removed, and the ear reconstructs
-    #    the missing pitch from them. `scope` is the band it works on, so it
-    #    tracks highPassHz; `floor` stops it chasing rumble.
-    bassEnhancerrc = {
-      group = "[soe][BassEnhancer#0]";
-      settings = {
-        amount = 6;
-        scope = 200;
-        floor = 40;
-        floorActive = true;
-      };
-    };
-
-    # 3. Downward compressor, staged so the net gain is positive EVERYWHERE.
-    #    makeup (8) >= the worst-case reduction on real material (7 dB at
-    #    −6 dBFS RMS in), which is the property the old settings violated.
-    #    More makeup / lower threshold = louder low end; the limiter below is
-    #    what makes raising it safe.
-    compressorrc = {
-      group = "[soe][Compressor#0]";
-      settings = {
-        attack = 10;              # ms — fast enough to catch transients
-        release = 150;            # ms — smooth, avoids obvious pumping
-        threshold = -20;          # dB
-        ratio = 2;                # 2:1 — gentle; 4:1 is what over-compressed it
-        knee = -6;                # soft knee (6 dB) for a gentle onset
-        makeup = 9;               # dB — must cover the worst-case reduction
-        # -80, not -100: the plugin's floor is -80.01 and EE rejects anything
-        # below it ("setReleaseThreshold: value -100 is less than the minimum
-        # value of -80.01"). This is the minimum in range, i.e. off.
-        releaseThreshold = -80;
-      };
-    };
-
-    # 4. Brickwall. This is the piece whose absence forced the old revision to
-    #    keep its makeup too small to be worth anything.
-    #
-    #    gainBoost is the second silent default that bit this file, and it is
-    #    not obvious from the name: LSP's gain boost adds back exactly the
-    #    amount the threshold was lowered by, so `threshold = -1` with the
-    #    default `gainBoost = true` is not a -1 dBFS ceiling at all — it is a
-    #    0 dBFS one. MEASURED 2026-07-25, stepped pink noise, float capture of
-    #    the sink so nothing could be blamed on the capture format:
-    #
-    #      gainBoost (default true)   peak out 0.000 dBFS, max sample 0.999999
-    #      gainBoost = false          peak out -1.000 dBFS at every level
-    #
-    #    Both read as "the limiter is working" unless you look at the peak, and
-    #    the first one hands the DAC a signal with no true-peak headroom at all.
-    #    The decibel it gives back is bought properly in the compressor's makeup
-    #    instead, which the limiter can then actually hold.
-    limiterrc = {
-      group = "[soe][Limiter#0]";
-      settings = {
-        threshold = -1;           # dBFS — a REAL ceiling, given gainBoost off
-        gainBoost = false;
-        lookahead = 5;            # ms
-        attack = 5;               # ms
-        release = 50;             # ms
-      };
-    };
-  };
-
-  # `toString true` is "1" in Nix and `toString false` is "" — either would be
-  # written to the db as a number and silently ignored, so booleans go through
-  # lib.boolToString.
-  renderValue = v: if lib.isBool v then lib.boolToString v else toString v;
-
-  renderIni = group: attrs:
-    group + "\n"
-    + lib.concatStrings (lib.mapAttrsToList (k: v: "${k}=${renderValue v}\n") attrs);
-
-  seedDb = pkgs.writeShellScript "zenduo-easyeffects-seed-db" ''
-    set -u
-    export PATH="${lib.makeBinPath [ pkgs.coreutils pkgs.gnugrep pkgs.gnused ]}:/usr/bin:/bin:''${PATH:-}"
-
-    db="''${XDG_CONFIG_HOME:-$HOME/.config}/easyeffects/db"
-    mkdir -p "$db"
-
-    # EasyEffects owns these files at runtime and rewrites them on a clean exit,
-    # so they cannot be /nix/store symlinks — it would either fail to save or
-    # replace the link with a regular file and desync the generation. Seeding
-    # them instead keeps Nix the source of truth while leaving EE able to write.
-    ${lib.concatStrings (lib.mapAttrsToList (file: spec: ''
-      cat > "$db/${file}" <<'EOF'
-      ${renderIni spec.group spec.settings}EOF
-    '') pluginDb)}
-
-    # easyeffectsrc also holds the input/output device EE picked and its preset
-    # bookkeeping, which is runtime state we have no business overwriting — so
-    # only the plugin list is asserted here, in place, leaving the rest alone.
-    rc="$db/easyeffectsrc"
-    [ -f "$rc" ] || printf '[StreamOutputs]\n' > "$rc"
-    if grep -q '^\[StreamOutputs\]' "$rc"; then
-      if grep -q '^plugins=' "$rc"; then
-        sed -i 's|^plugins=.*|plugins=${lib.concatStringsSep "," outputPlugins}|' "$rc"
-      else
-        sed -i 's|^\[StreamOutputs\]|[StreamOutputs]\nplugins=${lib.concatStringsSep "," outputPlugins}|' "$rc"
-      fi
-    else
-      printf '\n[StreamOutputs]\nplugins=%s\n' '${lib.concatStringsSep "," outputPlugins}' >> "$rc"
-    fi
-  '';
 in
 {
   options.zenduo.speakerDsp = (lib.mkEnableOption ''
@@ -364,67 +196,17 @@ in
       enable = true;
       # `preset` is deliberately NOT set: it only puts --load-preset on the
       # daemon's argv, and that flag is the bug documented in the header.
-      #
-      # The preset file itself is still shipped so the tuning is visible in the
-      # EasyEffects GUI and can be re-selected there by hand. It mirrors
-      # pluginDb above; keep the two in step if you change either — and note the
-      # enums are spelled as LABELS here and as INTEGERS in the db.
-      extraPresets.${presetName} = {
-        output = {
-          blocklist = [ ];
-          plugins_order = outputPlugins;
-          # NOTE: no `slope` — EE 8 drops the key from a preset (see filterSlope
-          # above), so loading this preset in the GUI gives a FLAT filter, not
-          # the shipped one. It is here to show the chain, not to reproduce it.
-          "filter#0" = {
-            bypass = false;
-            "input-gain" = 0.0;
-            "output-gain" = 0.0;
-            type = "High-pass";
-            frequency = highPassHz * 1.0;
-          };
-          "bass_enhancer#0" = {
-            bypass = false;
-            "input-gain" = 0.0;
-            "output-gain" = 0.0;
-            amount = 6.0;
-            scope = 200.0;
-            floor = 40.0;
-            "floor-active" = true;
-          };
-          "compressor#0" = {
-            bypass = false;
-            "input-gain" = 0.0;
-            "output-gain" = 0.0;
-            mode = "Downward";
-            attack = 10.0;
-            release = 150.0;
-            "release-threshold" = -80.0;
-            threshold = -20.0;
-            ratio = 2.0;
-            knee = -6.0;
-            makeup = 9.0;
-            "boost-threshold" = -72.0;
-            "boost-amount" = 6.0;
-            "stereo-split" = false;
-          };
-          "limiter#0" = {
-            bypass = false;
-            "input-gain" = 0.0;
-            "output-gain" = 0.0;
-            threshold = -1.0;
-            "gain-boost" = false;
-            lookahead = 5.0;
-            attack = 5.0;
-            release = 50.0;
-          };
-        };
-      };
     };
+
+    # The preset file is shipped so the tuning is visible in the EasyEffects
+    # GUI and can be re-selected there by hand. Generated from the same
+    # definition the db seed comes from (`make preset`).
+    xdg.configFile."easyeffects/output/${presetName}.json".source =
+      ../presets/easyeffects/${presetName}.json;
 
     systemd.user.services.easyeffects.Service = {
       # Order matters only in that both must finish before EE reads its db.
-      ExecStartPre = [ "${seedDb}" "${waitForDisplay}" ];
+      ExecStartPre = [ "${cfg.duoBin} speaker-dsp seed" "${waitForDisplay}" ];
     };
   };
 }

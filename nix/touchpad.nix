@@ -1,6 +1,6 @@
 # Touchpad disable-while-typing for the Duo's detachable touchpad.
 #
-# Pairs with system/55-touchpad-quirks.sh: that libinput quirk is what actually
+# Pairs with system/55-touchpad.sh: that libinput quirk is what actually
 # lets disable-while-typing apply to this EXTERNAL combo touchpad; this half just
 # makes sure GNOME's DWT switch is on. It's on by default, but GNOME's UI does
 # not expose the toggle, so declaring it keeps the behavior explicit and

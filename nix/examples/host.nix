@@ -1,28 +1,35 @@
-# Host profile: the ASUS Zenbook Duo (2024) UX8406MA running Ubuntu 24.04.
-# Pairs with the system layer: sudo make system HOST=zenbook-duo
-{ ... }:
+# Example: the Zenbook Duo host profile of a home-manager flake.
+#
+# flake.nix:
+#   inputs.zenbook-duo = {
+#     url = "github:JowiAoun/linux-on-zenbook-duo";
+#     inputs.nixpkgs.follows = "nixpkgs";
+#   };
+#   ...
+#   homeConfigurations.laptop = home-manager.lib.homeManagerConfiguration {
+#     inherit pkgs;
+#     extraSpecialArgs = { inherit inputs; };
+#     modules = [ ./home.nix ./hosts/zenbook-duo.nix ];
+#   };
+#
+# hosts/zenbook-duo.nix (this file):
+{ inputs, ... }:
 
 {
-  imports = [ ../../modules/zenbook-duo ];
+  imports = [ inputs.zenbook-duo.homeManagerModules.default ];
 
   # Nix-installed GUI apps get icons/.desktop/XDG integration on Ubuntu.
   targets.genericLinux.enable = true;
 
-  # One Windows-style taskbar along the bottom instead of the left-hand dock
-  # plus a separate top bar. Applies at the next login, not on switch.
-  modules.desktopShell.enable = true;
-
   zenduo = {
     enable = true;
-    # watchBacklight / watchRotation stay off until each passes the on-hardware
-    # test protocol (docs/PLAN.md §11.5); flip them here when they graduate.
+    # 80 is a good default for a mostly-plugged-in laptop.
     batteryLimit = 80;
     # The built-in speakers have a ~65 dB range fed by a cubic volume slider, so
-    # the bottom 40% of the slider is inaudible. An EasyEffects compressor lifts
-    # the average level so low/mid settings are usable — see modules/zenbook-duo/audio.nix.
+    # the bottom 40% of the slider is inaudible. The EasyEffects chain lifts the
+    # average level so low/mid settings are usable — see nix/audio.nix.
     speakerDsp = true;
-    # applyMethod stays "temporary" — see the option's warning: a persistent
-    # apply makes gnome-shell prompt "Keep display settings?" every time, which
-    # is unusable for a daemon that applies on every dock, undock and resume.
+    # Developing the tooling? Point the units at a live checkout:
+    # repoPath = "/home/me/p/linux-on-zenbook-duo";
   };
 }
