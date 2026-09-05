@@ -12,6 +12,8 @@ cd "$(dirname "$(readlink -f "$0")")"
 
 log()  { printf '\033[1;34m[zenduo]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[zenduo:warn]\033[0m %s\n' "$*" >&2; }
+# shellcheck source=lib/conf.sh
+source lib/conf.sh   # nix_managed
 
 DO_SYSTEM=1 DO_USER=1 PURGE=0 REVERT_GRUB=0 PREFIX=/usr/local
 while [ $# -gt 0 ]; do
@@ -36,7 +38,7 @@ user_half() {
   fi
   for f in "$d"/duo-*.service; do
     [ -e "$f" ] || continue
-    if [ -L "$f" ] && [[ "$(readlink -f "$f")" == /nix/store/* ]]; then
+    if nix_managed "$f"; then
       warn "$(basename "$f") is managed by home-manager — remove it there"
       continue
     fi

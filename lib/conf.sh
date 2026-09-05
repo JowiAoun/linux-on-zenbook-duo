@@ -11,8 +11,17 @@
 #   conf_set KEY VALUE   rewrite (or append) KEY in the file, creating it from
 #                        the shipped example when absent
 #   conf_defaults        print the built-in defaults as KEY=value lines
+#   nix_managed PATH     true when PATH is a symlink into the Nix store, i.e.
+#                        home-manager owns it (the config, or a duo-* unit)
 
 conf_path() { echo "${ZENDUO_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/zenduo/zenduo.conf}"; }
+
+# One hop of readlink, not -f: /nix/store need not exist on the machine that
+# runs the tests, and home-manager's first hop already lands in the store.
+nix_managed() { # <path>
+  [ -L "$1" ] || return 1
+  case "$(readlink "$1" 2>/dev/null)" in /nix/store/*) return 0 ;; *) return 1 ;; esac
+}
 
 # Built-in defaults. Keep in step with config/zenduo.conf.example.
 conf_defaults() {

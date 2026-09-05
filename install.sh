@@ -100,7 +100,7 @@ fi
 
 # ── the user half, as a function so it can run under runuser ─────────────────
 user_phase() {
-  local duo units_src units_dst f name body cur
+  local duo units_src f name body cur
   if [ "$DRY_RUN" = 1 ]; then run() { log "DRY RUN: $*"; }; else run() { "$@"; }; fi
 
   # shellcheck source=lib/conf.sh
@@ -112,9 +112,30 @@ user_phase() {
   if [ -x "$PREFIX/bin/duo" ]; then duo="$PREFIX/bin/duo"; else duo="$SRC/bin/duo"; fi
   log "units will run: $duo"
 
-  # 1. config
-  local conf
+  # home-manager owns the user half on some machines (the author's): the
+  # config and the units are read-only symlinks into the Nix store. Then this
+  # script must not write beside them — a unit it drops in for a feature the
+  # module has off today is "a file in the way" of the next home-manager
+  # switch that turns it on — and every flag it was given belongs in the
+  # zenduo.* options instead. Report, and touch nothing.
+  local hm=0 conf units_dst
   conf="$(conf_path)"
+  units_dst="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+  if nix_managed "$conf"; then hm=1; fi
+  for f in "$units_dst"/duo-*.service; do
+    if nix_managed "$f"; then hm=1; fi
+  done
+  if [ "$hm" = 1 ]; then
+    log "home-manager manages the user half here ($conf and/or $units_dst/duo-*.service are Nix store symlinks)"
+    log "nothing to do: set zenduo.batteryLimit / watchFn / speakerDsp ... in your home-manager config and switch"
+    [ -z "$BATTERY_LIMIT$APPLY_METHOD" ] && [ "$SPEAKER_DSP" = 0 ] \
+      || warn "ignoring --battery-limit / --apply-method / --speaker-dsp: they belong in the home-manager options"
+    echo
+    "$duo" status || true
+    return 0
+  fi
+
+  # 1. config
   if [ ! -e "$conf" ]; then
     log "creating $conf from config/zenduo.conf.example"
     if [ "$DRY_RUN" != 1 ]; then
@@ -137,15 +158,10 @@ user_phase() {
     return 0
   fi
   units_src="$SRC/systemd/user"
-  units_dst="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
   run mkdir -p "$units_dst"
   local changed=0
   for f in "$units_src"/duo-*.service; do
     name="$(basename "$f")"
-    if [ -L "$units_dst/$name" ] && [[ "$(readlink -f "$units_dst/$name")" == /nix/store/* ]]; then
-      log "$name is managed by home-manager — leaving it alone"
-      continue
-    fi
     body="$(sed "s|^ExecStart=/usr/local/bin/duo|ExecStart=$duo|" "$f")"
     cur="$(cat "$units_dst/$name" 2>/dev/null || true)"
     if [ "$cur" = "$body" ]; then
@@ -160,11 +176,15 @@ user_phase() {
 
   # 3. enable what was asked for (and stop what was explicitly turned off, so a
   #    re-run with different flags converges instead of only ever adding).
-  set_feature() { # <feature> <0|1>
+  set_feature() { # <feature> <0|1> [oneshot]
     local unit="duo-$1.service"
     if [ "$2" = 1 ]; then
-      if systemctl --user is-enabled --quiet "$unit" 2>/dev/null && systemctl --user is-active --quiet "$unit" 2>/dev/null; then
-        log "$1: already enabled and running"
+      # A oneshot is "inactive" the moment it has run, so for one, enabled is
+      # the whole test — asking for is-active too re-enabled bat-limit on
+      # every run and logged "enabled" as if something had changed.
+      if systemctl --user is-enabled --quiet "$unit" 2>/dev/null \
+         && { [ "${3:-}" = oneshot ] || systemctl --user is-active --quiet "$unit" 2>/dev/null; }; then
+        log "$1: already enabled${3:+ (runs at login)}"
       else
         run systemctl --user enable --now "$unit"
         log "$1: enabled"
@@ -182,7 +202,13 @@ user_phase() {
   set_feature watch-fn "$WATCH_FN"
   set_feature watch-backlight "$WATCH_BACKLIGHT"
   set_feature watch-rotation "$WATCH_ROTATION"
-  if [ -n "$(conf_get BATTERY_LIMIT)" ]; then set_feature bat-limit 1; else set_feature bat-limit 0; fi
+  if [ -n "$(conf_get BATTERY_LIMIT)" ]; then
+    set_feature bat-limit 1 oneshot
+    # A limit given on this command line should hold now, not at the next login.
+    if [ -n "$BATTERY_LIMIT" ]; then run systemctl --user start duo-bat-limit.service; log "bat-limit: applied $BATTERY_LIMIT% now"; fi
+  else
+    set_feature bat-limit 0
+  fi
 
   # 4. speaker chain (opt-in)
   if [ "$SPEAKER_DSP" = 1 ]; then

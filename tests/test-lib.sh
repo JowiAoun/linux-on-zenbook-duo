@@ -162,6 +162,18 @@ conf_set APPLY_METHOD temporary
 is "conf_set creates the file from defaults" "$(grep -c '^APPLY_METHOD=temporary' "$ZENDUO_CONF")" "1"
 rm -rf "$(dirname "$ZENDUO_CONF")"
 
+# ── nix_managed ──────────────────────────────────────────────────────────────
+group "nix_managed"
+nm_dir="$(mktemp -d)"
+touch "$nm_dir/plain.service"
+ln -s /nix/store/0000000000000000000000000000000-home-manager-files/.config/systemd/user/duo-watch-fn.service "$nm_dir/hm.service"
+ln -s "$nm_dir/plain.service" "$nm_dir/local-link.service"
+fails    "a regular file is not managed"            nix_managed "$nm_dir/plain.service"
+succeeds "a symlink into /nix/store is managed"     nix_managed "$nm_dir/hm.service"
+fails    "a symlink elsewhere is not managed"       nix_managed "$nm_dir/local-link.service"
+fails    "a missing path is not managed"            nix_managed "$nm_dir/none.service"
+rm -rf "$nm_dir"
+
 # ── systemd unit templates ────────────────────────────────────────────────────
 # Without SyslogIdentifier the daemons' stdout is filed under the executable's
 # name ("duo") and `duo log` (-t zenduo) showed none of it (2026-09-05: 600
