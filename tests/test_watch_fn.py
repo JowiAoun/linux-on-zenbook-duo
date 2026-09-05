@@ -9,6 +9,61 @@ import dock  # noqa: E402
 import watch_fn  # noqa: E402
 
 
+class Recorder(watch_fn.Dispatcher):
+    """A Dispatcher that records instead of running anything."""
+
+    def __init__(self):
+        super().__init__()
+        self.spawned, self.ran = [], []
+
+    def spawn(self, argv):
+        self.spawned.append(argv)
+
+    def run(self, argv):
+        self.ran.append(argv)
+
+
+class FnRow(unittest.TestCase):
+    def test_mainline_codes_for_mic_mute_and_emoji(self):
+        # 2026-09-05: 5a 7c and 5a 7e arrived as "unmapped" 42 times between them.
+        self.assertEqual(watch_fn.DEFAULT_ACTIONS[0x7C], "mic-mute")
+        self.assertEqual(watch_fn.DEFAULT_ACTIONS[0x7E], "emoji")
+        self.assertTrue({"mic-mute", "emoji"} <= watch_fn.KNOWN_ACTIONS)
+
+    def test_mic_mute_toggles_the_default_source(self):
+        d = Recorder()
+        d.dispatch(0x7C, "mic-mute")
+        self.assertEqual(d.spawned, [["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "toggle"]])
+
+    def test_emoji_raises_the_ibus_picker(self):
+        d = Recorder()
+        d.dispatch(0x7E, "emoji")
+        self.assertEqual(d.spawned, [["ibus", "emoji"]])
+
+    def test_unknown_action_runs_nothing(self):
+        d = Recorder()
+        d.dispatch(0x3D, "unmapped-0x3d")
+        self.assertEqual((d.spawned, d.ran), ([], []))
+
+    def test_fn_map_override_wins_over_the_default(self):
+        with __import__("tempfile").TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "zenduo"))
+            with open(os.path.join(tmp, "zenduo", "fn-map.json"), "w") as f:
+                f.write('{"keys": {"camera-toggle": {"report": "5a 3d"}, "emoji": {"report": "5a 7e"}}}')
+            old = os.environ.get("XDG_CONFIG_HOME")
+            os.environ["XDG_CONFIG_HOME"] = tmp
+            try:
+                table = watch_fn.load_overrides()
+            finally:
+                if old is None:
+                    del os.environ["XDG_CONFIG_HOME"]
+                else:
+                    os.environ["XDG_CONFIG_HOME"] = old
+        self.assertEqual(table[0x3D], "camera-toggle")
+        self.assertEqual(table[0x7E], "emoji")
+        self.assertEqual(table[0x10], "brightness-down", "defaults survive an override file")
+
+
 class AbsentKeyboard(unittest.TestCase):
     """2026-09-05: the keyboard died on USB (enumerated, "can't set config",
     no hidraw nodes) and watch-fn went silent for five hours because the

@@ -78,8 +78,12 @@ kept so code comments and the research stay cross-referenced.
   keyboard (a port power cycle) is the only recovery seen; `duo status`,
   `duo doctor` and `watch-fn` report the state (`dock.keyboard_usb_configured`).
 - **Vendor codes** (report id `0x5a`, second byte): `10` brightness down, `20`
-  brightness up, `4e` Fn-lock, `6a` second-screen key, `c7` keyboard backlight.
-  Volume and mute arrive as standard consumer-page usages and work natively.
+  brightness up, `4e` Fn-lock, `6a` second-screen key, `c7` keyboard backlight
+  (all confirmed on this unit, July 2026). Seen in the journal 2026-09-05 and
+  mapped by their mainline hid-asus meaning: `7c` mic mute, `7e` emoji picker
+  (**VERIFY-ON-HW** which keycaps; the legend says Fn+F9 and Fn+F11). Seen and
+  unidentified: `3d`, `9c` — `duo fn-map` attributes them. Volume and mute
+  arrive as standard consumer-page usages and work natively.
 - **Keyboard backlight** is `{0x5a, 0xba, 0xc5, 0xc4, level}` padded to the
   interface's report length. Docking, undocking and resume blank it in
   hardware; the level is remembered under `~/.local/state/zenduo/`.

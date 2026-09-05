@@ -17,6 +17,8 @@ This daemon closes the loop:
       brightness     -> GNOME's own StepUp/StepDown D-Bus (OSD included)
       second-screen  -> `duo toggle` (bottom panel on/off)
       kbd-backlight  -> `duo kb-backlight` cycle 0..3
+      mic-mute       -> `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle`
+      emoji          -> `ibus emoji` (the picker GNOME's Ctrl+; opens)
   - honors ~/.config/zenduo/fn-map.json (from `duo fn-map`) as overrides, so
     newly-captured codes map onto actions without touching this file
 
@@ -50,6 +52,13 @@ DEFAULT_ACTIONS = {
     0x4E: "fn-lock",           # confirmed: Fn+Esc
     0x6A: "second-screen",     # confirmed: dedicated key left of PrtSc
     0xC7: "kbd-backlight",     # confirmed: bare F4 (one key cycles levels)
+    # The two below were seen unmapped in this machine's journal (2026-09-05:
+    # 22 and 20 presses) and are the codes mainline hid-asus maps to
+    # KEY_MICMUTE and KEY_EMOJI_PICKER (drivers/hid/hid-asus.c,
+    # asus_input_mapping). VERIFY-ON-HW which keycap sends which — the legend
+    # says Fn+F9 and Fn+F11. Also seen and still unknown: 0x3d (22), 0x9c (4).
+    0x7C: "mic-mute",
+    0x7E: "emoji",
 }
 
 # Actions from a fn-map.json we know how to perform (everything else logged).
@@ -176,6 +185,16 @@ class Dispatcher:
                     "the bottom panel")
             else:
                 self.spawn([DUO, "toggle"])
+        elif action == "mic-mute":
+            # PipeWire's own toggle on the default source. No OSD: GNOME draws
+            # one only for key events, and these reports never become key
+            # events (mainline has no entry for this keyboard, V8).
+            self.spawn(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "toggle"])
+        elif action == "emoji":
+            # IBus ships the picker GNOME's Ctrl+; opens; `ibus emoji` raises
+            # it. The unit sees WAYLAND_DISPLAY through the session's imported
+            # environment, same as gdbus does for brightness.
+            self.spawn(["ibus", "emoji"])
         elif action == "fn-lock":
             pass  # see the module docstring: the swap is not ours to perform yet
         else:

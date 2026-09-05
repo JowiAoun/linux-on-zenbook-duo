@@ -182,12 +182,14 @@ change. *Gate:* acceptance tests I-10..I-12 from the original plan.
 
 ### Q. The rest of the Fn row
 
-Working: brightness, second-screen, keyboard backlight, volume/mute (native).
-Captured but unmapped: Fn-lock (`5a 4e`), display-switch, mic-mute,
-camera-toggle, emoji, MyASUS. Map them to GNOME actions (mic mute via
-`wpctl`, emoji via the GNOME picker, display-switch to a `duo layout` cycle).
-Fn-lock needs the layer swap to be *performed*, not just seen. *Gate:* every
-key in `duo fn-map` does something, on USB and Bluetooth.
+Working: brightness, second-screen, keyboard backlight, volume/mute (native);
+mic-mute (`5a 7c` → `wpctl`) and emoji (`5a 7e` → `ibus emoji`) since
+2026-09-05, mapped from their hid-asus codes and still to be confirmed on the
+keycaps. Captured but unmapped: Fn-lock (`5a 4e`), display-switch,
+camera-toggle, MyASUS — `5a 3d` and `5a 9c` are in the journal unattributed.
+Map them to GNOME actions (display-switch to a `duo layout` cycle). Fn-lock
+needs the layer swap to be *performed*, not just seen. *Gate:* every key in
+`duo fn-map` does something, on USB and Bluetooth.
 
 ### R. Upstream kernel watch
 
