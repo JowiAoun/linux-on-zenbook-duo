@@ -41,10 +41,11 @@ warn() { printf '\033[1;33m[zenduo:warn]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[zenduo:fail]\033[0m %s\n' "$*" >&2; exit 1; }
 banner() { printf '\n\033[1;36m========== %s ==========\033[0m\n' "$*"; }
 
-DO_SYSTEM=1 DO_USER=1 DRY_RUN=0 DEV=0 FORCE=0
+DO_SYSTEM=1 DO_USER=1 DRY_RUN=0 FORCE=0
 PREFIX=/usr/local
 TARGET_USER=""
-SYSTEM_FLAGS=()
+SYSTEM_FLAGS=()   # forwarded to system/run.sh
+USER_FLAGS=()     # forwarded to the user half when it re-runs under runuser (see below)
 WATCH_DISPLAYS=1 WATCH_FN=1 WATCH_BACKLIGHT=0 WATCH_ROTATION=0
 BATTERY_LIMIT="" APPLY_METHOD="" SPEAKER_DSP=0
 
@@ -54,24 +55,24 @@ while [ $# -gt 0 ]; do
     --user)
       if [ $# -ge 2 ] && [ "${2#-}" = "$2" ]; then TARGET_USER="$2"; shift
       else DO_USER=1; DO_SYSTEM=0; fi ;;
-    --dev)               DEV=1; SYSTEM_FLAGS+=(--dev) ;;
-    --dry-run|-n)        DRY_RUN=1; SYSTEM_FLAGS+=(--dry-run) ;;
+    --dev)               SYSTEM_FLAGS+=(--dev) ;;   # the user half has no dev/copy distinction
+    --dry-run|-n)        DRY_RUN=1; SYSTEM_FLAGS+=(--dry-run); USER_FLAGS+=(--dry-run) ;;
     --force)             FORCE=1; SYSTEM_FLAGS+=(--force) ;;
-    --prefix)            [ $# -ge 2 ] || die "--prefix needs a directory"; PREFIX="$2"; SYSTEM_FLAGS+=(--prefix "$2"); shift ;;
+    --prefix)            [ $# -ge 2 ] || die "--prefix needs a directory"; PREFIX="$2"; SYSTEM_FLAGS+=(--prefix "$2"); USER_FLAGS+=(--prefix "$2"); shift ;;
     --hwe-kernel|--no-hwe-kernel|--psr-fix|--no-psr-fix|--palm-rejection|--no-palm-rejection|--amp-check|--no-amp-check)
                          SYSTEM_FLAGS+=("$1") ;;
-    --watch-displays)    WATCH_DISPLAYS=1 ;;
-    --no-watch-displays) WATCH_DISPLAYS=0 ;;
-    --watch-fn)          WATCH_FN=1 ;;
-    --no-watch-fn)       WATCH_FN=0 ;;
-    --watch-backlight)   WATCH_BACKLIGHT=1 ;;
-    --no-watch-backlight) WATCH_BACKLIGHT=0 ;;
-    --watch-rotation)    WATCH_ROTATION=1 ;;
-    --no-watch-rotation) WATCH_ROTATION=0 ;;
-    --battery-limit)     [ $# -ge 2 ] || die "--battery-limit needs a number (20-100)"; BATTERY_LIMIT="$2"; shift ;;
-    --apply-method)      [ $# -ge 2 ] || die "--apply-method needs temporary|persistent"; APPLY_METHOD="$2"; shift ;;
-    --speaker-dsp)       SPEAKER_DSP=1 ;;
-    --no-speaker-dsp)    SPEAKER_DSP=0 ;;
+    --watch-displays)    WATCH_DISPLAYS=1; USER_FLAGS+=("$1") ;;
+    --no-watch-displays) WATCH_DISPLAYS=0; USER_FLAGS+=("$1") ;;
+    --watch-fn)          WATCH_FN=1; USER_FLAGS+=("$1") ;;
+    --no-watch-fn)       WATCH_FN=0; USER_FLAGS+=("$1") ;;
+    --watch-backlight)   WATCH_BACKLIGHT=1; USER_FLAGS+=("$1") ;;
+    --no-watch-backlight) WATCH_BACKLIGHT=0; USER_FLAGS+=("$1") ;;
+    --watch-rotation)    WATCH_ROTATION=1; USER_FLAGS+=("$1") ;;
+    --no-watch-rotation) WATCH_ROTATION=0; USER_FLAGS+=("$1") ;;
+    --battery-limit)     [ $# -ge 2 ] || die "--battery-limit needs a number (20-100)"; BATTERY_LIMIT="$2"; USER_FLAGS+=(--battery-limit "$2"); shift ;;
+    --apply-method)      [ $# -ge 2 ] || die "--apply-method needs temporary|persistent"; APPLY_METHOD="$2"; USER_FLAGS+=(--apply-method "$2"); shift ;;
+    --speaker-dsp)       SPEAKER_DSP=1; USER_FLAGS+=("$1") ;;
+    --no-speaker-dsp)    SPEAKER_DSP=0; USER_FLAGS+=("$1") ;;
     -h|--help)           sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
@@ -84,6 +85,18 @@ if [ -n "$BATTERY_LIMIT" ]; then
   fi
 fi
 case "${APPLY_METHOD:-temporary}" in temporary|persistent) ;; *) die "--apply-method must be temporary or persistent" ;; esac
+
+# Test seam (tests/test-lib.sh): print what was parsed and what would be
+# forwarded, then stop before anything is touched.
+if [ "${ZENDUO_INSTALL_PLAN:-0}" = 1 ]; then
+  for v in DO_SYSTEM DO_USER DRY_RUN FORCE PREFIX TARGET_USER WATCH_DISPLAYS WATCH_FN \
+           WATCH_BACKLIGHT WATCH_ROTATION BATTERY_LIMIT APPLY_METHOD SPEAKER_DSP; do
+    printf '%s=%s\n' "$v" "${!v}"
+  done
+  printf 'SYSTEM_FLAGS=%s\n' "${SYSTEM_FLAGS[*]}"
+  printf 'USER_FLAGS=%s\n' "${USER_FLAGS[*]}"
+  exit 0
+fi
 
 # ── the user half, as a function so it can run under runuser ─────────────────
 user_phase() {
@@ -209,10 +222,14 @@ if [ "$(id -u)" = 0 ]; then
     else
       banner "user layer (as $TARGET_USER)"
       uid="$(id -u "$TARGET_USER")"
-      export DRY_RUN DEV PREFIX WATCH_DISPLAYS WATCH_FN WATCH_BACKLIGHT WATCH_ROTATION BATTERY_LIMIT APPLY_METHOD SPEAKER_DSP
+      # The flags go as ARGUMENTS. The child is this script again and its
+      # parser starts from the defaults, so anything exported here is reset
+      # before it is read — that is how `sudo ./install.sh --dry-run` ran the
+      # user half for real, and dropped --battery-limit, --speaker-dsp and
+      # --prefix on the floor (reproduced 2026-09-05).
       runuser -u "$TARGET_USER" -- env "XDG_RUNTIME_DIR=/run/user/$uid" "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus" \
-        HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)" ZENDUO_INSTALL_USER_PHASE=1 bash "$0" --user \
-        || warn "user half failed — re-run as $TARGET_USER: ./install.sh --user"
+        HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)" bash "$0" "${USER_FLAGS[@]}" --user \
+        || warn "user half failed — re-run as $TARGET_USER: ./install.sh --user ${USER_FLAGS[*]}"
     fi
   fi
 else
@@ -229,10 +246,6 @@ else
   fi
   if [ "$DO_USER" = 1 ]; then
     banner "user layer"
-    # Under runuser (see above) the flags arrive through the environment.
-    if [ "${ZENDUO_INSTALL_USER_PHASE:-0}" = 1 ]; then
-      WATCH_DISPLAYS="${WATCH_DISPLAYS:-1}"; WATCH_FN="${WATCH_FN:-1}"
-    fi
     user_phase
   fi
 fi

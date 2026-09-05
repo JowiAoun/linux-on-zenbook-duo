@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# tests/test-lib.sh — behavioural tests for system/lib.sh and lib/conf.sh.
+# tests/test-lib.sh — behavioural tests for system/lib.sh, lib/conf.sh and
+# the argument plumbing of install.sh / uninstall.sh.
 #
 # Run with `make test`, or `sudo make test` to include the tests that need root
 # (install_conf writes root-owned files). CI runs it under sudo so nothing is
@@ -160,6 +161,40 @@ rm -f "$ZENDUO_CONF"
 conf_set APPLY_METHOD temporary
 is "conf_set creates the file from defaults" "$(grep -c '^APPLY_METHOD=temporary' "$ZENDUO_CONF")" "1"
 rm -rf "$(dirname "$ZENDUO_CONF")"
+
+# ── install.sh: flags must survive the runuser round trip ────────────────────
+# As root, install.sh re-runs itself under runuser for the user half. Its
+# parser starts from the defaults, so the flags have to travel as arguments:
+# 2026-09-05 `sudo ./install.sh --dry-run` ran the user half FOR REAL and
+# --battery-limit / --speaker-dsp / --prefix never reached it.
+group "install.sh argument plumbing"
+plan()  { ZENDUO_INSTALL_PLAN=1 ./install.sh "$@" 2>/dev/null; }
+field() { printf '%s\n' "$1" | sed -n "s/^$2=//p"; }
+p="$(plan --dry-run --dev --prefix /opt/z --no-watch-fn --watch-rotation --battery-limit 80 --apply-method persistent --speaker-dsp --user bob)"
+is "--user NAME names the target account"     "$(field "$p" TARGET_USER)" bob
+is "--user NAME keeps both halves"            "$(field "$p" DO_SYSTEM),$(field "$p" DO_USER)" "1,1"
+is "--dry-run is parsed"                      "$(field "$p" DRY_RUN)" 1
+is "system flags exclude the user-only ones"  "$(field "$p" SYSTEM_FLAGS)" "--dry-run --dev --prefix /opt/z"
+fwd="$(field "$p" USER_FLAGS)"
+is "every user-half flag is forwarded"        "$fwd" "--dry-run --prefix /opt/z --no-watch-fn --watch-rotation --battery-limit 80 --apply-method persistent --speaker-dsp"
+# The round trip the root path performs: re-parse exactly what it forwards.
+# shellcheck disable=SC2086  # word-splitting the forwarded flags is the point
+c="$(plan $fwd --user)"
+is "child: user half only"                    "$(field "$c" DO_SYSTEM),$(field "$c" DO_USER)" "0,1"
+is "child: dry run survives"                  "$(field "$c" DRY_RUN)" 1
+is "child: --prefix survives"                 "$(field "$c" PREFIX)" /opt/z
+is "child: --no-watch-fn survives"            "$(field "$c" WATCH_FN)" 0
+is "child: --watch-rotation survives"         "$(field "$c" WATCH_ROTATION)" 1
+is "child: --battery-limit survives"          "$(field "$c" BATTERY_LIMIT)" 80
+is "child: --apply-method survives"           "$(field "$c" APPLY_METHOD)" persistent
+is "child: --speaker-dsp survives"            "$(field "$c" SPEAKER_DSP)" 1
+is "no flags forwards nothing"                "$(field "$(plan)" USER_FLAGS)" ""
+is "--user alone means the user half only"    "$(field "$(plan --user)" DO_SYSTEM)" 0
+is "--system alone skips the user half"       "$(field "$(plan --system)" DO_USER)" 0
+fails "--battery-limit out of range is refused" plan --battery-limit 10
+fails "--apply-method never is refused"        plan --apply-method never
+fails "an unknown flag is refused"             plan --bogus
+succeeds "--help exits 0"                      ./install.sh --help
 
 # ── summary ──────────────────────────────────────────────────────────────────
 printf '\n%s\n' "────────────────────────────────────────"
