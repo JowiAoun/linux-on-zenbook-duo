@@ -20,7 +20,7 @@ while [ $# -gt 0 ]; do
     --user) DO_USER=1; DO_SYSTEM=0 ;;
     --purge) PURGE=1 ;;
     --revert-grub) REVERT_GRUB=1 ;;
-    --prefix) PREFIX="$2"; shift ;;
+    --prefix) [ $# -ge 2 ] || { echo "--prefix needs a directory" >&2; exit 64; }; PREFIX="$2"; shift ;;
     -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 64 ;;
   esac

@@ -196,6 +196,11 @@ fails "--apply-method never is refused"        plan --apply-method never
 fails "an unknown flag is refused"             plan --bogus
 succeeds "--help exits 0"                      ./install.sh --help
 
+group "uninstall.sh argument plumbing"
+is "--prefix without a value is a usage error (64), not an unbound variable" "$(./uninstall.sh --prefix >/dev/null 2>&1; echo $?)" 64
+is "an unknown flag is a usage error (64)"     "$(./uninstall.sh --bogus >/dev/null 2>&1; echo $?)" 64
+succeeds "--help exits 0"                      ./uninstall.sh --help
+
 # ── summary ──────────────────────────────────────────────────────────────────
 printf '\n%s\n' "────────────────────────────────────────"
 printf '%d passed, %d failed, %d skipped\n' "$PASSED" "$FAILED" "$SKIPPED"
