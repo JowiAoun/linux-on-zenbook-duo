@@ -198,6 +198,11 @@ dotfiles ([JowiAoun/dome](https://github.com/JowiAoun/dome)) consume it.
 - **Bottom screen stays lit under the docked keyboard.** `duo status` says
   whether the dock policy is paused by a manual layout (`duo apply-displays`
   resumes it) and whether `duo-watch-displays` is running (`duo features`).
+- **Keyboard stops working while docked; `duo status` says its USB link is
+  DEAD.** It enumerated but the kernel could not configure it (`journalctl -k`
+  shows `can't set config #1, error -71`, usually after a burst of xhci
+  resets). Lift it off the pogo pins and re-seat it — nothing in software
+  recovers that link. `duo doctor` and `duo log` name the state.
 - **Media keys do nothing.** `duo log` while pressing one. "hotkey mode not
   confirmed" means the handshake never landed — re-dock the keyboard; if it
   persists, `duo fn-probe` and attach the output to an issue. `duo toggle`

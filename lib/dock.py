@@ -28,22 +28,55 @@ import tempfile
 
 KBD_VID = "0b05"
 KBD_PID = "1b2c"
+USB_DEVICES = "/sys/bus/usb/devices"  # tests point this at a fake tree
 
 
-def keyboard_docked():
-    """True when the keyboard is on the pogo pins (USB 0b05:1b2c)."""
-    for vid_path in glob.glob("/sys/bus/usb/devices/*/idVendor"):
-        pid_path = vid_path[: -len("idVendor")] + "idProduct"
+def keyboard_usb_device():
+    """sysfs directory of the keyboard on the pogo pins (USB 0b05:1b2c), or None."""
+    for vid_path in glob.glob(os.path.join(USB_DEVICES, "*", "idVendor")):
+        dev = vid_path[: -len("idVendor")]
         try:
             with open(vid_path) as f:
                 if f.read().strip().lower() != KBD_VID:
                     continue
-            with open(pid_path) as f:
+            with open(dev + "idProduct") as f:
                 if f.read().strip().lower() == KBD_PID:
-                    return True
+                    return dev
         except OSError:
             continue  # device disappeared mid-scan (undock races the glob)
-    return False
+    return None
+
+
+def keyboard_docked():
+    """True when the keyboard is on the pogo pins, whether or not it works.
+
+    The dock policy wants the physical fact: a keyboard lying on the bottom
+    panel with a dead USB link is still lying on the bottom panel.
+    """
+    return keyboard_usb_device() is not None
+
+
+def keyboard_usb_configured(dev=None):
+    """False when the keyboard enumerated but the kernel could not configure it.
+
+    MEASURED 2026-09-05 on the author's unit: after four xhci resets and
+    "device firmware changed", the keyboard re-enumerated and the kernel logged
+    "can't set config #1, error -71". It then sits in sysfs with the right ids
+    but an empty bConfigurationValue and no interface directories, so there are
+    no hidraw nodes, no typing over USB and no media keys, while everything
+    that only looks at the ids still says "docked". Only lifting the keyboard
+    off the pins and re-seating it (a port power cycle) recovered it. None when
+    there is no keyboard on USB at all.
+    """
+    if dev is None:
+        dev = keyboard_usb_device()
+    if dev is None:
+        return None
+    try:
+        with open(dev + "bConfigurationValue") as f:
+            return f.read().strip() not in ("", "0")
+    except OSError:
+        return False
 
 
 def _override_dir():

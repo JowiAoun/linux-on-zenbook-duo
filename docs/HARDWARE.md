@@ -69,6 +69,14 @@ kept so code comments and the research stay cross-referenced.
 - **It forgets.** Every re-enumeration (dock, undock, reboot, resume from
   suspend) drops hotkey mode. `watch-fn` re-sends on node-set changes and on
   resume, detected by the gap between `CLOCK_BOOTTIME` and `CLOCK_MONOTONIC`.
+- **The pogo link can be present and dead** (MEASURED 2026-09-05): four
+  `xhci_hcd` resets in 40 s, "device firmware changed", then the
+  re-enumeration failed with `can't set config #1, error -71`. The device
+  stays in sysfs with the right ids, an empty `bConfigurationValue` and no
+  interfaces — so no hidraw node, no typing, no media keys, while "docked"
+  still reads true. The daemons had not touched it beforehand. Re-seating the
+  keyboard (a port power cycle) is the only recovery seen; `duo status`,
+  `duo doctor` and `watch-fn` report the state (`dock.keyboard_usb_configured`).
 - **Vendor codes** (report id `0x5a`, second byte): `10` brightness down, `20`
   brightness up, `4e` Fn-lock, `6a` second-screen key, `c7` keyboard backlight.
   Volume and mute arrive as standard consumer-page usages and work natively.

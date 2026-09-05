@@ -182,6 +182,22 @@ class Dispatcher:
             log(f"no handler for '{action}' yet — captured for the future")
 
 
+def absent_reason():
+    """The line logged when no hidraw node of the keyboard exists.
+
+    The pogo link can be present and dead at the same time
+    (dock.keyboard_usb_configured): the device enumerated but the kernel could
+    not configure it, so no hidraw node ever appears and no re-init helps.
+    Say so, because every other signal — "docked", bottom panel off — looks
+    normal, and the daemon otherwise falls silent (2026-09-05: five hours).
+    """
+    if dock.keyboard_docked() and dock.keyboard_usb_configured() is False:
+        return ("keyboard is on the pogo pins but its USB link failed to configure "
+                "(kernel: \"can't set config\") — no typing or media keys over USB "
+                "until it is lifted off and re-seated")
+    return "no keyboard (undocked / BT off) — waiting"
+
+
 def slept_since(last):
     """(suspended?, new marks) — CLOCK_BOOTTIME counts suspend, CLOCK_MONOTONIC
     does not, so the gap between them is exactly the time spent asleep.
@@ -207,7 +223,11 @@ def main():
     actions = load_overrides()
     dispatcher = Dispatcher()
     fds = {}
-    known = ()
+    # None = "state unknown, say what you find": the first pass and every
+    # rescan after a lost node log either branch below, so a keyboard that
+    # vanished (undock, BT off, or a USB link that died) is written down.
+    # An empty tuple means "no nodes, already reported".
+    known = None
     clocks = None
     failures, retry_at = 0, 0.0
     log(f"started (actions: {len(actions)} codes; map overrides honored)")
@@ -216,7 +236,7 @@ def main():
         woke, clocks = slept_since(clocks)
         if woke:
             log("resumed from sleep — re-sending the keyboard handshake")
-            known = ()  # the keyboard lost hotkey mode while the machine was off
+            known = None  # it lost hotkey mode while the machine was off — or died
         nodes = tuple(sorted(kb_init.keyboard_hidraw_nodes()))
         if nodes != known and time.monotonic() >= retry_at:
             for fd in list(fds):
@@ -257,7 +277,12 @@ def main():
                         log(f"hotkey mode not confirmed (attempt {failures}) — "
                             f"media keys are dead; retrying in {delay}s")
             else:
-                log("keyboard gone (undocked / BT off) — waiting")
+                # The pogo link can be present and dead at the same time
+                # (dock.keyboard_usb_configured): the device enumerated but
+                # the kernel could not configure it, so no hidraw node ever
+                # appears and no amount of re-init helps. Say so, because
+                # every other signal ("docked", bottom panel off) looks normal.
+                log(absent_reason())
                 known = nodes
                 failures, retry_at = 0, 0.0
         if not fds:
@@ -271,7 +296,7 @@ def main():
                 os.close(fd)
                 node = fds.pop(fd, None)
                 log(f"lost {node}; rescanning")
-                known = ()  # force a rescan + re-init next loop
+                known = None  # rescan, and report whichever state is found
                 continue
             if len(data) >= 2 and data[0] == VENDOR_REPORT_ID and data[1] != 0:
                 code = data[1]

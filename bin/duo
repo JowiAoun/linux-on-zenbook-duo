@@ -98,16 +98,30 @@ USAGE
 
 # ── shared probes ────────────────────────────────────────────────────────────
 
-kb_attached() {
+kb_usb_dev() { # prints the sysfs directory of the keyboard on the pogo pins; 1 if absent
   local d
   for d in /sys/bus/usb/devices/*/idVendor; do
     [ -r "$d" ] || continue
     if [ "$(cat "$d" 2>/dev/null)" = "$KBD_VID" ] \
        && [ "$(cat "${d%idVendor}idProduct" 2>/dev/null)" = "$KBD_PID" ]; then
+      echo "${d%idVendor}"
       return 0
     fi
   done
   return 1
+}
+
+kb_attached() { kb_usb_dev >/dev/null; }
+
+# The link can be present and dead: the keyboard enumerates with the right ids
+# but the kernel logs "can't set config #1, error -71", bConfigurationValue
+# stays empty and no interface (so no hidraw node) ever appears. MEASURED
+# 2026-09-05 after four xhci resets and "device firmware changed"; only lifting
+# the keyboard off the pins and re-seating it recovered it (lib/dock.py).
+kb_usb_configured() {
+  local d
+  d="$(kb_usb_dev)" || return 1
+  case "$(cat "$d/bConfigurationValue" 2>/dev/null)" in ''|0) return 1 ;; *) return 0 ;; esac
 }
 
 panel_status() { # <connector-suffix like eDP-1> -> "connected"/"disconnected"/absent
@@ -330,7 +344,9 @@ cmd_doctor() {
 
   echo
   echo "-- keyboard (V8/V10) --"
-  if kb_attached; then
+  if kb_attached && ! kb_usb_configured; then
+    ck FAIL 0 "keyboard $KBD_VID:$KBD_PID is on the pogo pins but its USB link failed to configure (kernel: \"can't set config\"; bConfigurationValue empty) — no typing or media keys over USB until it is lifted off and re-seated"
+  elif kb_attached; then
     ck PASS 0 "keyboard $KBD_VID:$KBD_PID attached via USB (pogo)"
     if [ -d /sys/module/hid_asus ]; then
       ck PASS 0 "hid_asus module loaded"
@@ -359,7 +375,7 @@ cmd_doctor() {
       fi
     fi
   done
-  if kb_attached && [ "$hid_found" = 0 ]; then
+  if kb_attached && kb_usb_configured && [ "$hid_found" = 0 ]; then
     ck WARN 0 "keyboard attached but no matching hidraw node — HID backlight fallback unavailable"
   fi
 
@@ -691,7 +707,13 @@ cmd_status() {
   for p in "$TOP_PANEL" "$BOTTOM_PANEL"; do
     printf '  %-8s status=%s enabled=%s\n' "$p" "$(panel_status "$p")" "$(panel_enabled "$p")"
   done
-  if kb_attached; then echo "keyboard: attached (USB $KBD_VID:$KBD_PID)"; else echo "keyboard: detached (or BT)"; fi
+  if kb_attached && ! kb_usb_configured; then
+    echo "keyboard: on the pogo pins but its USB link is DEAD (enumerated, not configured) — lift it off and re-seat it"
+  elif kb_attached; then
+    echo "keyboard: attached (USB $KBD_VID:$KBD_PID)"
+  else
+    echo "keyboard: detached (or BT)"
+  fi
   local ov
   if [ "$ZENDUO_DOCK_POLICY" != 1 ]; then
     echo "dock policy: OFF in $(conf_path) (DOCK_POLICY=$ZENDUO_DOCK_POLICY)"

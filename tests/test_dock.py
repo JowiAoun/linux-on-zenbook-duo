@@ -44,5 +44,50 @@ class Override(unittest.TestCase):
         self.assertIsNone(dock.read_override())
 
 
+class UsbLink(unittest.TestCase):
+    """keyboard_docked is the physical fact; keyboard_usb_configured says whether
+    the link works. 2026-09-05: the keyboard sat enumerated-but-unconfigured
+    ("can't set config #1, error -71") for hours and nothing reported it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old = dock.USB_DEVICES
+        dock.USB_DEVICES = self.tmp.name
+
+    def tearDown(self):
+        dock.USB_DEVICES = self.old
+        self.tmp.cleanup()
+
+    def device(self, name, vid, pid, config):
+        d = os.path.join(self.tmp.name, name)
+        os.makedirs(d)
+        for fn, val in (("idVendor", vid), ("idProduct", pid), ("bConfigurationValue", config)):
+            if val is not None:
+                with open(os.path.join(d, fn), "w") as f:
+                    f.write(val + "\n")
+        return d + os.sep
+
+    def test_no_keyboard(self):
+        self.device("1-2", "046d", "c52b", "1")  # some other USB device
+        self.assertFalse(dock.keyboard_docked())
+        self.assertIsNone(dock.keyboard_usb_configured())
+
+    def test_working_link(self):
+        d = self.device("3-6", "0b05", "1b2c", "1")
+        self.assertTrue(dock.keyboard_docked())
+        self.assertEqual(dock.keyboard_usb_device(), d)
+        self.assertTrue(dock.keyboard_usb_configured())
+
+    def test_enumerated_but_unconfigured_is_docked_and_dead(self):
+        # bConfigurationValue reads empty after "can't set config #1, error -71"
+        self.device("3-6", "0b05", "1b2c", "")
+        self.assertTrue(dock.keyboard_docked(), "still lying on the bottom panel")
+        self.assertFalse(dock.keyboard_usb_configured())
+
+    def test_ids_are_matched_case_insensitively(self):
+        self.device("3-6", "0B05", "1B2C", "1")
+        self.assertTrue(dock.keyboard_docked())
+
+
 if __name__ == "__main__":
     unittest.main()
