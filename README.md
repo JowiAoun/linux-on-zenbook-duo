@@ -1,140 +1,254 @@
-# zenduo (`duo/`)
+# Linux on the ASUS Zenbook Duo (2024)
 
-Hardware tooling for the **ASUS Zenbook Duo (2024) UX8406MA** on Ubuntu 24.04
-(GNOME/Wayland). Self-contained: nothing here imports from the rest of `dome`,
-so it can graduate to its own repository once proven on hardware
-(see [`../docs/PLAN.md`](../docs/PLAN.md) §11, roadmap v1.0).
+Everything Windows does on the Zenbook Duo UX8406MA that Linux does not do
+out of the box, as one installable, customisable project: the bottom screen
+switches off when the keyboard is docked on it and back on when you lift it,
+the detachable keyboard's Fn/media row and backlight work over USB and
+Bluetooth, the speakers get the voicing they have under Windows, the battery
+charge limit sticks, the touchpad rejects your palm while you type, and the
+OLED flicker is gone.
+
+[![ci](https://github.com/JowiAoun/linux-on-zenbook-duo/actions/workflows/ci.yml/badge.svg)](https://github.com/JowiAoun/linux-on-zenbook-duo/actions/workflows/ci.yml)
+
+> **Status:** in daily use since July 2026 on Ubuntu 24.04 (GNOME, Wayland),
+> extracted from a personal dotfiles repo in September 2026. Pre-1.0: the
+> interfaces may still move, and only one machine has run it so far. If you
+> have a Duo, please try it and open an issue with `duo report` attached —
+> the goal is to support as many Duos, distros and desktops as possible.
+> See [docs/PLAN.md](docs/PLAN.md) for where this is going.
+
+## What works
+
+| Feature | Windows | Here | Verified |
+|---|---|---|---|
+| Bottom panel off while the keyboard is docked, on when lifted; survives suspend, hotplug, lock, GNOME Settings changes | ScreenXpert | `duo watch-displays` | ✅ on hardware, daily since 2026-07-23 |
+| Manual panel control that never blanks the machine; Win+P layouts (external only, mirror) are respected | Win+P | `duo top/bottom/both/toggle` | ✅ |
+| Fn/media keys: brightness (with GNOME's OSD, both panels), second-screen key, keyboard-backlight key; volume/mute are native | ASUS driver | `duo watch-fn` (sends the same handshake the kernel driver would) | ✅ USB and Bluetooth |
+| Keyboard backlight 0–3, remembered and restored after dock/undock/resume | ASUS driver | `duo kb-backlight` | ✅ |
+| Bottom panel brightness follows the top panel | ASUS driver | brightness keys, `duo sync-backlight`, optional `duo watch-backlight` | ✅ |
+| Battery charge limit (e.g. 80 %) re-applied at every login | MyASUS | `duo bat-limit`, `BATTERY_LIMIT` in the config | ✅ |
+| Speaker voicing: high-pass, bass psychoacoustics, staged compressor, limiter | harman/kardon APO | `duo speaker-dsp` (EasyEffects chain, one definition for Nix and non-Nix) | ✅ measured, see [nix/audio.nix](nix/audio.nix) |
+| Loud notice when the speaker amps come up unprotected after a Windows Fast-Startup boot | — | `duo-cs35l41-check` system service | ✅ |
+| Palm rejection on the detachable touchpad while typing | ASUS driver | libinput quirk + GNOME's disable-while-typing | ✅ |
+| No OLED flicker | ASUS driver | `i915.enable_psr=0` on the kernel command line | ✅ |
+| Touch/pen mapped to the right panel | Windows | `duo set-tablet-mapping` (GNOME 46+) | 🧪 written, not yet verified with a pen |
+| Auto-rotation (tent, book, portrait) | ScreenXpert | `duo watch-rotation` | 🧪 logs orientation only |
+| Read-only hardware probe, safe on a live USB — the install gate | — | `duo doctor` | ✅ |
+
+The full Windows-parity matrix, including what is deliberately out of scope,
+is in [docs/FEATURES.md](docs/FEATURES.md).
+
+## Requirements
+
+- **ASUS Zenbook Duo (2024) UX8406MA.** Later variants (UX8406CA) share the
+  chassis and most of this should apply; report what does not.
+- **A kernel ≥ 6.11.** Below that, detaching the keyboard sends a spurious
+  rfkill press that kills Wi-Fi. Ubuntu 24.04.4 and 26.04 ship 7.0.
+- **GNOME on Wayland** for the display features (they talk to Mutter's
+  `org.gnome.Mutter.DisplayConfig`, the same API GNOME Settings uses; GNOME 46
+  or newer for touch mapping). Keyboard, backlight, battery and audio work on
+  any desktop. Other compositors are on the roadmap (docs/PLAN.md, phase N).
+- **Tested on Ubuntu 24.04.4 LTS.** The installer also knows Fedora and Arch
+  package names, untested — see [docs/PLAN.md](docs/PLAN.md) phase M.
+
+## Install
+
+```bash
+sudo apt install -y git            # the one prerequisite on Ubuntu
+git clone https://github.com/JowiAoun/linux-on-zenbook-duo ~/linux-on-zenbook-duo
+cd ~/linux-on-zenbook-duo
+./install.sh                       # asks for your password once; safe to re-run
+```
+
+That does two things, both idempotent (a second run reports "up to date"):
+
+1. **Root half** (`sudo`, [system/](system/)): installs the few packages the
+   tooling needs (`python3-gi`, `iio-sensor-proxy`, `inotify-tools`, …), on
+   Ubuntu keeps the HWE kernel plus the GA kernel as a fallback, adds
+   `i915.enable_psr=0` to GRUB, puts `duo` at `/usr/local/bin/duo`, installs
+   the udev rules that let the keyboard tooling run unprivileged, a 50-line
+   root helper with a sudoers rule scoped to that one binary, the libinput
+   palm-rejection quirk, and the speaker-amp reporter.
+2. **User half** (you, no root): writes `~/.config/zenduo/zenduo.conf`,
+   installs the `duo-*` systemd user units, and starts the default features
+   (`watch-displays`, `watch-fn`).
+
+Preview everything without changing anything: `./install.sh --dry-run`.
+Every flag: `./install.sh --help`. Reboot if the kernel or GRUB changed.
+
+**Before installing on a fresh machine**, or from a live USB, run the
+read-only probe — it is the gate the whole project was installed behind:
+
+```bash
+bin/duo doctor        # no dependencies beyond bash; safe anywhere
+```
+
+Installing Ubuntu next to Windows on this machine has its own traps (five
+factory partitions, BitLocker, a shrink wall at `$MFT`, an installer that
+cannot use a pre-made LUKS container). They are written up in
+[docs/install/](docs/install/README.md).
+
+## Customise
+
+Everything is a feature you can turn on or off, or a knob you can set.
+
+```bash
+duo features                       # what is installed, enabled, running
+duo enable watch-backlight         # start a feature now and at every login
+duo disable watch-fn
+duo config                         # the effective knobs
+duo config set BATTERY_LIMIT 80    # then: duo enable bat-limit
+```
+
+Knobs live in `~/.config/zenduo/zenduo.conf` ([annotated example](config/zenduo.conf.example)):
+
+| Key | Default | What |
+|---|---|---|
+| `APPLY_METHOD` | `temporary` | How layouts are handed to Mutter. `persistent` was verified on hardware and rejected as a daemon default: GNOME asks "Keep display settings?" on every dock, undock and resume |
+| `BATTERY_LIMIT` | empty | Charge-limit percentage (20–100) the `bat-limit` feature applies at login |
+| `BACKLIGHT_SOURCE` / `BACKLIGHT_TARGET` | `intel_backlight` / auto | Which backlight brightness is copied from and to |
+| `KB_BACKLIGHT_RESTORE` | `1` | Restore the keyboard backlight level after the keyboard re-enumerates |
+| `DOCK_POLICY` | `1` | `0` keeps `watch-displays` running but makes it watch without acting |
+
+System-level features are flags on the installer, so they can be switched
+later with the same command that installed them:
+
+```bash
+sudo ./install.sh --system --no-psr-fix          # keep Panel Self Refresh on
+sudo ./install.sh --system --no-palm-rejection
+sudo ./install.sh --system --no-amp-check
+sudo ./install.sh --system --no-hwe-kernel        # Ubuntu: leave the kernel alone
+```
+
+The speaker chain is opt-in — the numbers are measured on one unit and
+documented, but taste is yours:
+
+```bash
+./install.sh --user --speaker-dsp     # or: duo speaker-dsp install
+duo speaker-dsp status
+```
 
 ## Commands
 
 ```
-duo doctor                 full read-only hardware probe — safe anywhere, incl. a live USB;
-                           it is the Phase C install gate in PLAN.md
+duo doctor                 full read-only hardware probe — safe anywhere, incl. a live USB
 duo status                 quick glance: panels, keyboard, backlight, battery limit
+duo features               every feature with its installed/enabled/running state
+duo enable|disable <f>     turn a feature on/off (and start/stop it now)
+duo config [get K|set K V] the knobs in ~/.config/zenduo/zenduo.conf
 duo top|bottom|both        enable that panel set (refuses to disable everything);
                            pauses the dock policy until the keyboard docks/undocks
 duo toggle                 bottom panel on <-> off, leaving every other output alone
-duo watch-displays         daemon: bottom panel off while the keyboard is docked, back
-                           on when it comes off — nothing else in the layout is touched
+duo watch-displays         daemon: bottom panel off while docked, back on when lifted
 duo apply-displays         enforce that policy once, now (drops any manual override)
 duo sync-backlight         copy the top panel's backlight percentage to the bottom panel
 duo watch-backlight        daemon: keep the bottom backlight synced
-duo kb-init                send the ASUS handshake to enable Fn/media-key reporting;
+duo kb-init                send the ASUS handshake that enables Fn/media-key reporting;
                            only reports success if the keyboard echoes it back
-duo watch-fn               daemon: re-init keyboard on connect/resume + act on media keys
-duo kb-backlight 0..3      keyboard backlight — native LED if the kernel has it, else HID;
-                           the level is remembered and restored on dock/undock/resume
-duo kb-backlight --show    print the remembered keyboard-backlight level
-duo bat-limit 20..100      battery charge-limit threshold (sysfs / root helper)
+duo watch-fn               daemon: re-init the keyboard on connect/resume + act on media keys
+duo kb-backlight 0..3      keyboard backlight — native LED if the kernel has it, else HID
+duo kb-backlight --show    print the remembered level
+duo bat-limit [20..100]    battery charge-limit threshold (no value = the config's)
+duo speaker-dsp <cmd>      install | status | uninstall | seed | preset
 duo set-tablet-mapping     pin each ELAN touchscreen to its own panel (GNOME 46+)
 duo watch-rotation         EXPERIMENTAL: log accelerometer orientation events
 duo fn-probe               inventory what the Fn keys actually emit (raw hex)
-duo fn-map                 guided wizard: after kb-init press each key BARE -> key->report map
-duo fn-map --show          print the saved key->report map without re-capturing
+duo fn-map [--show]        guided wizard: press each key -> key->report map
 duo watch-input            (root) decode key events from the keyboard + Asus WMI hotkeys
-duo log                    follow zenduo journal messages
+duo report                 doctor + status + journals, for a bug report
+duo log                    follow the zenduo journal
 ```
 
-## Design rules
+## Nix and home-manager
 
-1. **Fail-safe:** `displayctl` refuses any configuration with zero enabled
-   panels; display changes use Mutter's *temporary* apply method so a broken
-   layout never survives a session restart. There is a second, harder reason
-   for *temporary* (verified on hardware 2026-07-23): gnome-shell treats a
-   **persistent** `ApplyMonitorsConfig` as a user-initiated change and raises
-   its *"Keep display settings?"* countdown every time, so an automatic daemon
-   would prompt on every dock, undock and resume. `ZENDUO_APPLY_METHOD=persistent`
-   still exists for one-off manual use — the trade is that Mutter then restores
-   the layout itself on resume, at the cost of those dialogs.
-2. **Native-first:** every capability probes the kernel interface before using
-   a userspace fallback, so newer kernels automatically shrink this tool.
-3. **Poll, don't storm:** keyboard presence is polled from sysfs at 1 Hz with
-   a 2-sample debounce — no udev triggers on the pogo-pin device forest.
-4. **Mutter D-Bus, not xrandr / gnome-monitor-config:** display control goes
-   through `org.gnome.Mutter.DisplayConfig`, the same API GNOME Settings uses.
-5. **Converge, don't toggle:** `watch-displays` compares the layout the machine
-   *should* have against the one it *has* on every wake-up — keyboard poll,
-   Mutter's `MonitorsChanged`, and logind's resume signal — instead of acting
-   only on dock/undock edges. Reacting to edges alone is what left the bottom
-   panel lit under a docked keyboard after suspend: resuming makes Mutter
-   re-read `monitors.xml` (both panels), and since the keyboard never moved,
-   an edge-triggered watcher had nothing to react to. A deliberate
-   `duo top/bottom/both/toggle` outranks the policy until the keyboard is next
-   docked or undocked, so manual choices and the second-screen Fn key stick.
-6. **Govern one panel, not the layout:** the daemon decides exactly one thing —
-   whether the *bottom* panel is on. The top panel, external monitors, their
-   positions, scales and which one is primary stay the user's. Stating the
-   policy as "docked -> enable exactly [top]" also asserted the top panel ON,
-   which snapped the laptop screen back on whenever Win+P *External Only* was
-   chosen while docked. The bottom-off rule is enforced continuously (the
-   keyboard is lying on that screen); turning it back on happens only at the
-   undock *edge*, so an undocked layout the user chose is never overridden.
-   Mirrored layouts are left alone entirely — one logical monitor per connector
-   would silently un-mirror them.
-7. **The bottom panel follows the top one:** undocking only brings it back when
-   the laptop's own display is actually in use. On external-only (or with the
-   lid shut over the bottom panel), taking the keyboard off leaves that screen
-   dark — uncovering a screen is not the same as wanting it. `duo toggle` and
-   the second-screen Fn key switch that one panel too, and never turn the
-   laptop display on behind your back.
-8. **Prove it, don't assume it:** a hidraw write that returns success proves
-   only that *some* interface accepted *some* bytes — several of this
-   keyboard's six interfaces accept feature reports and quietly drop them. So
-   `kb-init` reads the handshake back before reporting success, and everything
-   that talks to the vendor collection addresses it structurally (the interface
-   declaring feature `0x5a`) rather than by trying nodes until one stops
-   erroring. Believing the first "success" is what left the media keys dead
-   while every log line claimed the init had worked.
-9. **Minimal privilege:** the only root path is `/usr/local/sbin/zenduo-helper`
-   (installed by `system/50-duo-sudoers.sh`), which accepts exactly two
-   validated verbs. The HID backlight fallback runs unprivileged via a udev
-   uaccess rule on `/dev/hidraw*`.
+The repo is a flake. The package runs on any machine with Nix:
 
-## Layout
-
-```
-bin/duo               CLI entry point (bash)
-lib/displayctl.py     Mutter DisplayConfig client (python3-gi)
-lib/watch_displays.py the dock-policy daemon: converges the layout on keyboard,
-                      MonitorsChanged and resume events (`--once` = apply-displays)
-lib/dock.py           keyboard dock probe + the manual-override marker
-lib/kb_backlight.py   HID feature-report backlight fallback (hidraw ioctl, no pyusb)
-helper/zenduo-helper  the root helper — the only privileged code
-systemd/*.service     reference unit templates (the Nix module generates the real ones)
+```bash
+nix run github:JowiAoun/linux-on-zenbook-duo -- doctor
 ```
 
-## System dependencies
+The home-manager module generates the same user units and config
+declaratively (the root half is still `sudo ./install.sh --system` once from
+a checkout — home-manager cannot write udev rules):
 
-Installed by `sudo make system HOST=zenbook-duo` (see `system/40-duo-deps.sh`):
-`usbutils`, `inotify-tools`, `iio-sensor-proxy`, `python3-gi`,
-plus the udev rules (`45`) and sudoers rule (`50`). No pyusb — the HID
-fallback talks straight to `/dev/hidraw*`.
+```nix
+# flake.nix
+inputs.zenbook-duo = {
+  url = "github:JowiAoun/linux-on-zenbook-duo";
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+# a home-manager module
+{ inputs, ... }: {
+  imports = [ inputs.zenbook-duo.homeManagerModules.default ];
+  zenduo = {
+    enable = true;
+    batteryLimit = 80;
+    speakerDsp = true;      # also installs EasyEffects from nixpkgs
+    # repoPath = "/home/me/linux-on-zenbook-duo";   # run the daemons from a live checkout
+  };
+}
+```
 
-## Hardware facts baked in
+All options: [nix/home-manager.nix](nix/home-manager.nix). A full host example:
+[nix/examples/host.nix](nix/examples/host.nix). This is how the author's
+dotfiles ([JowiAoun/dome](https://github.com/JowiAoun/dome)) consume it.
 
-| Thing | Value |
-|-------|-------|
-| Keyboard (USB pogo + BT) | `0b05:1b2c` |
-| Keyboard BT pairing mode | Detached + switch on + **hold `F10` 4–5 s** until the LED flashes blue rapidly (switch alone does not advertise) |
-| Top digitizer | ELAN9008 `04f3:4259` → `eDP-1` |
-| Bottom digitizer | ELAN9009 `04f3:42ec` → `eDP-2` |
-| kb-backlight HID feature report | `{0x5a, 0xba, 0xc5, 0xc4, level}` (from mainline `hid-asus.c`), padded to the interface's report length |
-| ASUS vendor interface | the **only** hidraw interface declaring feature report `0x5a` (usage page `0xff31`). Find it that way, never by node order: `/dev/hidrawN` renumbers on every re-enumeration and sorts as text (`hidraw16` before `hidraw5`) |
-| Vendor feature report length | **17 bytes over USB** even though the descriptor declares 16 — a 16-byte write is stalled with `EPIPE`. 16 is correct over Bluetooth (mainline's size), so the length is negotiated, not assumed |
-| Hotkey-mode proof | `GET_FEATURE 0x5a` echoes back `ASUS Tech.Inc.` once the handshake has landed. Valid only immediately after the write — any later `0x5a` write (e.g. the backlight report) overwrites that buffer |
-| Battery limit | `/sys/class/power_supply/BAT*/charge_control_end_threshold` |
+## Troubleshooting
 
-## Prior art & licensing
+- **Bottom screen stays lit under the docked keyboard.** `duo status` says
+  whether the dock policy is paused by a manual layout (`duo apply-displays`
+  resumes it) and whether `duo-watch-displays` is running (`duo features`).
+- **Media keys do nothing.** `duo log` while pressing one. "hotkey mode not
+  confirmed" means the handshake never landed — re-dock the keyboard; if it
+  persists, `duo fn-probe` and attach the output to an issue. `duo toggle`
+  saying *python3-gi missing*: your `python3` is a Nix/pyenv one; `duo` pins
+  `/usr/bin/python3`, set `DUO_PYGI` if yours lives elsewhere.
+- **Sound is harsh and distorted after booting from Windows.** The CS35L41
+  amps failed their power-up handshake; you get a desktop notification. Shut
+  down fully (not a reboot). To stop it recurring, disable Fast Startup in
+  Windows: `powercfg /h off` as Administrator. Details:
+  [docs/HARDWARE.md](docs/HARDWARE.md#speakers).
+- **Wi-Fi drops when the keyboard is detached.** Kernel < 6.11. `duo doctor`
+  warns about it.
+- **Pairing the keyboard over Bluetooth.** Detach it, slide the switch on its
+  left edge on, then **hold F10 for 4–5 s** until the light flashes blue
+  rapidly — the switch alone does not advertise. Remove any stale Windows
+  pairing first.
+- **Anything else:** `duo report > report.txt` and open an issue with it.
 
-zenduo is an original implementation, MIT-licensed (see `LICENSE`). It owes its
-feature list to two projects worth crediting:
+## Repository layout
+
+```
+bin/duo                  the CLI (bash); every feature is a subcommand
+lib/*.py                 the daemons and helpers (python3, stdlib + PyGObject for Mutter)
+lib/conf.sh              the config-file reader
+helper/zenduo-helper     the ONLY root code: two validated verbs, 50 lines
+system/                  the root half: idempotent scripts + lib.sh, run by install.sh
+systemd/user/            the duo-* user units install.sh copies into place
+config/                  annotated zenduo.conf example
+presets/easyeffects/     the speaker preset, generated from lib/speaker_dsp.py
+nix/                     flake package + home-manager module
+tests/                   bash + python unit tests (make test)
+docs/                    PLAN (A–Z), HARDWARE, FEATURES, DESIGN, install guide, research
+```
+
+Design rules — fail-safe, native-first, poll-don't-storm, prove-don't-assume —
+are in [docs/DESIGN.md](docs/DESIGN.md); hardware facts (USB ids, HID report
+lengths, backlight devices, the amp story) in [docs/HARDWARE.md](docs/HARDWARE.md);
+the plan from here to 1.0 and beyond in [docs/PLAN.md](docs/PLAN.md).
+
+## Prior art and licensing
+
+MIT (see [LICENSE](LICENSE)). This is an original implementation that owes
+its feature list to two projects worth crediting:
 
 - [alesya-h/zenbook-duo-2024-ux8406ma-linux](https://github.com/alesya-h/zenbook-duo-2024-ux8406ma-linux)
-  (BSD-2-Clause) — the original `duo` script; our command names stay
-  deliberately compatible with it. No code is currently copied; if a snippet
-  is ever adapted, its file gets the BSD-2 attribution notice.
+  (BSD-2-Clause) — the original `duo` script; command names stay deliberately
+  compatible with it, and the libinput palm-rejection quirk comes from there.
 - [Fmstrat/zenbook-duo-linux](https://github.com/Fmstrat/zenbook-duo-linux)
-  (GPL-3.0) — behavioral reference only; **no code from this repo may be
-  copied here** (license incompatibility with MIT).
+  (GPL-3.0) — behavioural reference only; no code from it is or may be copied
+  here (license incompatibility with MIT).
 
-Kernel-derived constants (USB IDs, HID report bytes) are facts, not code.
+Kernel-derived constants (USB ids, the HID report bytes from `hid-asus.c`)
+are facts, not code. History before September 2026 is in
+[JowiAoun/dome](https://github.com/JowiAoun/dome), where this was built.
