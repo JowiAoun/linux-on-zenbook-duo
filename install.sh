@@ -79,8 +79,9 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -n "$BATTERY_LIMIT" ]; then
-  [[ "$BATTERY_LIMIT" =~ ^[0-9]+$ ]] && [ "$BATTERY_LIMIT" -ge 20 ] && [ "$BATTERY_LIMIT" -le 100 ] \
-    || die "--battery-limit must be 20-100"
+  if ! [[ "$BATTERY_LIMIT" =~ ^[0-9]+$ ]] || [ "$BATTERY_LIMIT" -lt 20 ] || [ "$BATTERY_LIMIT" -gt 100 ]; then
+    die "--battery-limit must be 20-100"
+  fi
 fi
 case "${APPLY_METHOD:-temporary}" in temporary|persistent) ;; *) die "--apply-method must be temporary or persistent" ;; esac
 

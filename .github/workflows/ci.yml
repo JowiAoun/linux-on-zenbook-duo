@@ -32,6 +32,8 @@ jobs:
         run: |
           bin/duo version
           bin/duo config show
+          bin/duo features
+          make lint
           bin/duo doctor || true   # a non-Duo runner fails the gate on purpose; it must not crash
 
   python:

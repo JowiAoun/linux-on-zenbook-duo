@@ -722,8 +722,11 @@ cmd_features() {
   for f in $USER_FEATURES; do
     printf '%-16s %-32s %s\n' "$f" "$(unit_state "$f")$(unit_is_hm_managed "$f" && echo ' [hm]')" "$(feature_desc "$f")"
   done
-  local dsp="not installed"
-  if python3 "$LIB/speaker_dsp.py" status 2>/dev/null | grep -q 'db seeded (EasyEffects 8): yes'; then dsp="installed"; fi
+  # Captured, then matched: `... | grep -q` under pipefail returns 141 when
+  # grep exits before the writer is done, and reads as "not installed".
+  local dsp="not installed" dsp_out
+  dsp_out="$(python3 "$LIB/speaker_dsp.py" status 2>/dev/null || true)"
+  case "$dsp_out" in *"db seeded (EasyEffects 8): yes"*) dsp="installed" ;; esac
   printf '%-16s %-32s %s\n' speaker-dsp "$dsp" "$(feature_desc speaker-dsp)"
   echo
   echo "system features (root; change with: sudo ./install.sh --system --<flag> / --no-<flag>)"
@@ -785,7 +788,10 @@ cmd_config() {
       done
       ;;
     get) [ -n "${2:-}" ] || usage; conf_get "$2" ;;
-    set) [ -n "${2:-}" ] && [ -n "${3:-}" ] || usage; conf_set "$2" "$3" && log "$2=$3 written to $(conf_path) (restart the daemon that reads it)" ;;
+    set)
+      if [ -z "${2:-}" ] || [ -z "${3:-}" ]; then usage; fi
+      conf_set "$2" "$3" && log "$2=$3 written to $(conf_path) (restart the daemon that reads it)"
+      ;;
     path) conf_path ;;
     *) usage ;;
   esac
