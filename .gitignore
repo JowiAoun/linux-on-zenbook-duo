@@ -1,0 +1,22 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Nix build results
+result
+result-*
+
+# Hardware probe outputs (attach curated copies to an issue instead)
+doctor-*.txt
+zenduo-report-*.txt
+
+# Editors / OS
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+.DS_Store
+
+# Agent-local notes
+CLAUDE.local.md
