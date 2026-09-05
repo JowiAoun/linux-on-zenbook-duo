@@ -1,13 +1,12 @@
 # zenduo — see duo-watch-displays.service for how these units are installed.
-# EXPERIMENTAL: currently logs orientation events without acting on them.
 [Unit]
-Description=zenduo: follow accelerometer orientation (experimental)
+Description=zenduo: init keyboard hotkey mode + act on media keys
 PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/duo watch-rotation
+ExecStart=/usr/local/bin/duo watch-fn
 Restart=on-failure
 RestartSec=3
 

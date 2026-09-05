@@ -1,0 +1,12 @@
+# zenduo — see duo-watch-displays.service for how these units are installed.
+# Re-applies BATTERY_LIMIT from ~/.config/zenduo/zenduo.conf at login; the
+# sysfs threshold resets on every reboot. A no-op when the key is empty.
+[Unit]
+Description=zenduo: apply battery charge limit
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/duo bat-limit
+
+[Install]
+WantedBy=default.target

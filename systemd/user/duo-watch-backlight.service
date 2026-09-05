@@ -1,4 +1,7 @@
-# Reference template — see duo-watch-displays.service for usage.
+# zenduo — see duo-watch-displays.service for how these units are installed.
+# Off by default: the brightness keys already mirror the level onto the bottom
+# panel through duo-watch-fn. Enable this if you change brightness some other
+# way (a slider, an ambient-light daemon) and want the panels to track.
 [Unit]
 Description=zenduo: sync bottom panel backlight to the top panel
 PartOf=graphical-session.target
@@ -6,7 +9,7 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=%h/.dotfiles/duo/bin/duo watch-backlight
+ExecStart=/usr/local/bin/duo watch-backlight
 Restart=on-failure
 RestartSec=3
 

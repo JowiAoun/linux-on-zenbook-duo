@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 46-duo-speaker-amp.sh — [zenbook-duo hosts only] detect the Cirrus CS35L41
+# 46-speaker-amp.sh — detect the Cirrus CS35L41
 # smart amplifiers losing their power-up handshake, and say so loudly.
 #
 # The Duo's speakers are not driven by the ALC294 codec alone: two CS35L41
@@ -77,8 +77,17 @@ source ./lib.sh
 
 require_root
 
-if ! is_duo_host; then
-  log "not a zenbook-duo host — skipping"
+if ! feature_on AMP_CHECK 1; then
+  if [ -e /etc/systemd/system/duo-cs35l41-check.service ]; then
+    log "amp check disabled — removing the reporter"
+    if [ "$DRY_RUN" != 1 ]; then
+      systemctl disable --now duo-cs35l41-check.service >/dev/null 2>&1 || true
+      rm -f /etc/systemd/system/duo-cs35l41-check.service /usr/local/sbin/duo-cs35l41-check
+      systemctl daemon-reload
+    fi
+  else
+    log "amp check disabled (--no-amp-check)"
+  fi
   exit 0
 fi
 
@@ -99,7 +108,7 @@ if [ -e "$OLD_UNIT" ] || [ -e "$OLD_HEAL" ]; then
   fi
 fi
 
-DUO_USER="$(target_user)" || die "cannot determine the target user — set environment.username in user-config.nix or run via sudo from your own account"
+DUO_USER="$(target_user)" || die "cannot determine the target user — run via sudo from your own account, or pass --user NAME"
 id "$DUO_USER" >/dev/null 2>&1 || die "user '$DUO_USER' does not exist on this machine"
 
 tmp_check="$(mktemp)"
@@ -112,7 +121,7 @@ cat > "$tmp_check" <<'CHECK'
 # fail their power-up handshake, leaving the speakers running without the amp
 # DSP (harsh and distorted for the rest of the boot).
 #
-# Installed by dome's system/46-duo-speaker-amp.sh. See that file for why this
+# Installed by linux-on-zenbook-duo's system/46-speaker-amp.sh. See that file for why this
 # only reports: re-binding the driver to repair it makes the sound card worse.
 #
 #   duo-cs35l41-check            report on this boot; exit 1 if affected
@@ -169,7 +178,7 @@ report() {
   log "              then use Shut down rather than Restart between systems."
   log ""
   log "do NOT re-bind or reload the driver to fix this: it leaves the codec"
-  log "unable to attach and the right amp unprobed. See system/46-duo-speaker-amp.sh"
+  log "unable to attach and the right amp unprobed. See system/46-speaker-amp.sh"
   notify_once
 }
 
@@ -202,14 +211,14 @@ case "${1:-}" in
 esac
 CHECK
 
-# The username is fixed at install time, the same way 50-duo-sudoers.sh binds
+# The username is fixed at install time, the same way 50-sudoers.sh binds
 # its rule to one account rather than resolving one at runtime.
 sed -i "s|@TARGET_USER@|$DUO_USER|" "$tmp_check"
 
 cat > "$tmp_unit" <<'UNIT'
 [Unit]
 Description=Report Zenbook Duo CS35L41 speaker amplifier power-up failures
-Documentation=https://github.com/JowiAoun/dome
+Documentation=https://github.com/JowiAoun/linux-on-zenbook-duo
 After=sound.target
 Wants=sound.target
 

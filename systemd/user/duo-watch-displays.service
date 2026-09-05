@@ -1,6 +1,6 @@
-# Reference template — the home-manager module (modules/zenbook-duo)
-# generates the real unit with the correct repo path. For non-Nix use:
-# copy to ~/.config/systemd/user/, fix ExecStart, then
+# zenduo — installed into ~/.config/systemd/user/ by ./install.sh (the
+# home-manager module generates its own copy). For a manual install: copy it
+# there, fix ExecStart if `duo` lives elsewhere, then
 #   systemctl --user daemon-reload && systemctl --user enable --now duo-watch-displays
 [Unit]
 Description=zenduo: keep the panel layout matching the keyboard dock state
@@ -9,7 +9,7 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=%h/.dotfiles/duo/bin/duo watch-displays
+ExecStart=/usr/local/bin/duo watch-displays
 Restart=on-failure
 RestartSec=3
 
