@@ -9,7 +9,7 @@ jobs:
   shell:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: bash syntax
         run: bash -n bin/duo helper/zenduo-helper install.sh uninstall.sh lib/conf.sh system/*.sh tests/*.sh
       - name: shellcheck
@@ -39,7 +39,7 @@ jobs:
   python:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: bytecompile
         run: python3 -m py_compile lib/*.py tests/*.py
       - name: unit tests (without PyGObject — the layout maths must not need it)
@@ -54,7 +54,7 @@ jobs:
   nix:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
@@ -67,7 +67,7 @@ jobs:
   hygiene:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: secret scan (gitleaks)

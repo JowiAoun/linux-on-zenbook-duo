@@ -45,9 +45,19 @@ succeeds "matches line 1 of 200k without SIGPIPE" out_matches "$big" -E '^1$'
 succeeds "matches the last line too"              out_matches "$big" -E '^200000$'
 naive_pipeline_status() { ( set -euo pipefail; printf '%s\n' "$big" | grep -qE '^1$' ); echo $?; }
 naive="$(naive_pipeline_status)"
-if [ "$naive" = 141 ]; then ok "the naive 'printf | grep -q' pipeline still returns 141 (why this helper exists)"
-elif [ "$naive" = 0 ]; then skip "naive pipeline returns 141" "this bash/grep did not raise SIGPIPE; helper is still correct"
-else no "naive pipeline returned $naive — expected 141 or 0"; fi
+# What the naive pipeline returns depends on the parent's SIGPIPE disposition:
+#   141  printf was killed by SIGPIPE (a terminal, a plain shell)
+#     1  SIGPIPE is ignored, so the write fails with EPIPE and printf exits 1.
+#        GitHub's runner starts every job that way (measured 2026-09-05: the
+#        first two CI runs on main failed here with "returned 1").
+# Both are the hazard — a successful match reported as failure. Only 0 means
+# this bash/grep never hit it, which makes the helper merely unnecessary here.
+case "$naive" in
+  141) ok "the naive 'printf | grep -q' pipeline returns 141 — SIGPIPE (why this helper exists)" ;;
+  1)   ok "the naive 'printf | grep -q' pipeline returns 1 — EPIPE with SIGPIPE ignored (why this helper exists)" ;;
+  0)   skip "naive pipeline fails under pipefail" "this bash/grep did not hit SIGPIPE or EPIPE; helper is still correct" ;;
+  *)   no "naive pipeline returned $naive — expected 141, 1 or 0" ;;
+esac
 
 # ── feature_on / hardware ────────────────────────────────────────────────────
 group "feature_on"
