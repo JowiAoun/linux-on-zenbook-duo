@@ -3,7 +3,7 @@
 
 The media/Fn-row keys (brightness, volume, keyboard backlight, …) are ASUS
 vendor usages that hid-generic does not translate into input events (and
-hid_asus has no entry for this device — PLAN.md V8). So they emit nothing the
+hid_asus has no entry for this device — docs/HARDWARE.md V8). So they emit nothing the
 input layer sees; the only place their signal appears is the raw hidraw stream.
 
 This reads every hidraw node belonging to the keyboard and prints each report as
@@ -11,8 +11,8 @@ hex. Press one media key at a time and note which line it produced — that map
 becomes the lookup table for a `duo watch-fn` remap daemon (brightness → backlight
 sysfs, volume → wpctl/pactl, kb backlight → duo kb-backlight, …).
 
-Unprivileged access needs the udev uaccess rule (system/45-duo-udev.sh); if a
-node can't be opened, re-run after `sudo make system HOST=zenbook-duo`, or sudo.
+Unprivileged access needs the udev uaccess rule (system/45-udev.sh); if a
+node can't be opened, re-run after `sudo ./install.sh --system`, or sudo.
 Exit: 0 stopped by user · 1 no device / nothing readable.
 """
 
@@ -79,7 +79,7 @@ def main():
     if not fds:
         msg = "fn_probe: could not open any hidraw node"
         if denied:
-            msg += " (permission denied — run 'sudo make system HOST=zenbook-duo' for the udev rule, or use sudo)"
+            msg += " (permission denied — run 'sudo ./install.sh --system' for the udev rule, or use sudo)"
         print(msg, file=sys.stderr)
         return 1
 

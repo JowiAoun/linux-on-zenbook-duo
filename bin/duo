@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# duo — zenduo CLI for the ASUS Zenbook Duo (2024) UX8406MA.
+# duo — the CLI of linux-on-zenbook-duo, for the ASUS Zenbook Duo (2024) UX8406MA.
 #
-# Read-only anywhere (incl. a live USB):  doctor, status, fn-probe, fn-map, log
+# Read-only anywhere (incl. a live USB):  doctor, status, features, config,
+#                                         fn-probe, fn-map, report, log, version
 # Needs a GNOME session:                  top/bottom/both/toggle, watch-displays,
 #                                         set-tablet-mapping, watch-rotation
 # May need the root helper / udev rule:   sync-backlight, kb-backlight, bat-limit
 #
-# Design (PLAN.md §11): fail-safe (never zero panels), native-first with
+# Design (docs/DESIGN.md): fail-safe (never zero panels), native-first with
 # userspace fallback, poll-don't-storm (1 Hz + debounce), Mutter D-Bus only.
 set -euo pipefail
 
@@ -14,27 +15,44 @@ DUO_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 LIB="$DUO_ROOT/lib"
 TAG=zenduo
 
-# displayctl.py / set-tablet-mapping need PyGObject (apt python3-gi). A Nix
-# python3 on the user's PATH does NOT have it, so pin the system interpreter for
-# the gi-using scripts. The stdlib-only tools (kb_*, fn_*, watch_*) use plain
-# python3 and work with either. Override with DUO_PYGI if python3-gi lives
-# elsewhere.
+# shellcheck source=../lib/conf.sh
+source "$LIB/conf.sh"
+export ZENDUO_CONF_EXAMPLE="${ZENDUO_CONF_EXAMPLE:-$DUO_ROOT/config/zenduo.conf.example}"
+
+# displayctl.py / set-tablet-mapping need PyGObject (apt python3-gi). A Nix or
+# pyenv python3 on the user's PATH does NOT have it, so pin the system
+# interpreter for the gi-using scripts. The stdlib-only tools (kb_*, fn_*,
+# watch_*, speaker_dsp) use plain python3 and work with either. Override with
+# DUO_PYGI if python3-gi lives elsewhere (the Nix package sets it).
 PYGI="${DUO_PYGI:-/usr/bin/python3}"
+
+# Knobs from ~/.config/zenduo/zenduo.conf, handed to the daemons as environment.
+# A value already in the environment wins (the home-manager units set it).
+export ZENDUO_APPLY_METHOD="${ZENDUO_APPLY_METHOD:-$(conf_get APPLY_METHOD)}"
+export ZENDUO_DOCK_POLICY="${ZENDUO_DOCK_POLICY:-$(conf_get DOCK_POLICY)}"
+export ZENDUO_KB_BACKLIGHT_RESTORE="${ZENDUO_KB_BACKLIGHT_RESTORE:-$(conf_get KB_BACKLIGHT_RESTORE)}"
 
 KBD_VID=0b05
 KBD_PID=1b2c
 TOP_PANEL=eDP-1
 BOTTOM_PANEL=eDP-2
 NATIVE_LED=/sys/class/leds/asus::kbd_backlight
+HELPER=/usr/local/sbin/zenduo-helper
+
+USER_FEATURES="watch-displays watch-fn watch-backlight watch-rotation bat-limit"
 
 log() { printf '[%s] %s\n' "$TAG" "$*"; logger -t "$TAG" -- "$*" 2>/dev/null || true; }
 
 usage() {
-  cat <<'EOF'
+  cat <<'USAGE'
 usage: duo <command>
 
   doctor                 full read-only hardware/health probe (live-USB safe)
   status                 quick glance: panels, keyboard, backlight, battery limit
+  features               every feature with its installed/enabled/running state
+  enable <feature>       turn a feature on (and start it now)
+  disable <feature>      turn a feature off (and stop it now)
+  config [get K|set K V] effective settings from ~/.config/zenduo/zenduo.conf
   top|bottom|both        enable that panel set (refuses all-off; pauses the
                          dock policy until the keyboard docks/undocks)
   toggle                 bottom panel on <-> off
@@ -48,14 +66,19 @@ usage: duo <command>
   kb-backlight <0-3>     keyboard backlight (native LED if present, else HID);
                          the level is remembered and restored on dock/undock/resume
   kb-backlight --show    print the remembered level
-  bat-limit <20-100>     battery charge-limit threshold
+  bat-limit [20-100]     battery charge-limit threshold (no value = BATTERY_LIMIT
+                         from the config file)
+  speaker-dsp <install|status|uninstall|seed|preset>
+                         EasyEffects voicing chain for the built-in speakers
   set-tablet-mapping     map each touchscreen to its own panel (GNOME 46+)
   watch-rotation         daemon: follow accelerometer orientation (EXPERIMENTAL)
   fn-probe               interactively inventory what the Fn keys emit
   fn-map [--show]        guided wizard: press each Fn key -> build a key map (--show: print it)
   watch-input            (root) decode key events from the keyboard + Asus WMI hotkeys
+  report                 bundle doctor + status + journal excerpts for a bug report
   log                    follow zenduo journal messages
-EOF
+  version                print the installed version
+USAGE
   exit 64
 }
 
@@ -118,6 +141,48 @@ backlight_pct() { # <device> -> "NN%" or "cur/max raw" when values are implausib
   fi
 }
 
+override_active() { # -> prints the overriding connectors, or nothing
+  local f="${XDG_RUNTIME_DIR:-/tmp/zenduo-$(id -u)}/zenduo/display-override.json"
+  [ -r "$f" ] || return 1
+  python3 -c 'import json,sys
+try:
+    doc = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+print(("docked" if doc.get("docked") else "undocked") + ": " + ", ".join(doc.get("want", [])))' "$f" 2>/dev/null
+}
+
+have_user_systemd() { systemctl --user show-environment >/dev/null 2>&1; }
+
+unit_state() { # <feature> -> "installed enabled active" words, or "absent"
+  local unit="duo-$1.service" out=""
+  have_user_systemd || { echo "no-systemd"; return 0; }
+  if systemctl --user cat "$unit" >/dev/null 2>&1; then
+    out="installed"
+    case "$(systemctl --user is-enabled "$unit" 2>/dev/null || true)" in
+      enabled|static) out="$out enabled" ;;
+      *) out="$out disabled" ;;
+    esac
+    if systemctl --user is-active --quiet "$unit" 2>/dev/null; then
+      out="$out active"
+    elif [ "$(systemctl --user show "$unit" -p Type --value 2>/dev/null)" = oneshot ]; then
+      # A oneshot is "inactive" the moment it has finished; say how it went.
+      out="$out ran:$(systemctl --user show "$unit" -p Result --value 2>/dev/null || echo '?')"
+    else
+      out="$out inactive"
+    fi
+    echo "$out"
+  else
+    echo "absent"
+  fi
+}
+
+unit_is_hm_managed() { # <feature>
+  local f="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/duo-$1.service"
+  [ -L "$f" ] && case "$(readlink -f "$f")" in /nix/store/*) return 0 ;; esac
+  return 1
+}
+
 # ── doctor ───────────────────────────────────────────────────────────────────
 
 D_PASS=0 D_WARN=0 D_FAIL=0 D_MUSTFAIL=0
@@ -136,7 +201,7 @@ ck() { # <PASS|WARN|FAIL|INFO> <must?0/1> <message>
 }
 
 cmd_doctor() {
-  echo "== zenduo doctor — $(date -u +%FT%TZ) =="
+  echo "== zenduo doctor $(cat "$DUO_ROOT/VERSION" 2>/dev/null || echo dev) — $(date -u +%FT%TZ) =="
   echo
   echo "-- system --"
   ck INFO 0 "kernel: $(uname -r)"
@@ -144,17 +209,33 @@ cmd_doctor() {
     . /etc/os-release
     ck INFO 0 "distro: ${PRETTY_NAME:-unknown}"
   fi
+  local model
+  model="$(cat /sys/class/dmi/id/product_name 2>/dev/null || echo unknown)"
+  case "$model" in
+    *UX8406MA*) ck PASS 0 "model: $model (the machine this project targets)" ;;
+    *UX8406*)   ck WARN 0 "model: $model — a Duo variant; most of this applies, report what does not" ;;
+    *)          ck WARN 0 "model: $model — not a Zenbook Duo; only the read-only probes mean anything here" ;;
+  esac
   ck INFO 0 "session: type=${XDG_SESSION_TYPE:-unset} desktop=${XDG_CURRENT_DESKTOP:-unset}"
   if command -v gnome-shell >/dev/null 2>&1; then
     ck INFO 0 "$(gnome-shell --version 2>/dev/null || echo 'GNOME Shell version unavailable')"
+  else
+    ck WARN 0 "no gnome-shell — display control needs GNOME/Mutter (see docs/PLAN.md for other desktops)"
   fi
   if grep -q 'i915.enable_psr=0' /proc/cmdline 2>/dev/null; then
     ck PASS 0 "cmdline has i915.enable_psr=0 (OLED flicker fix)"
   else
-    ck INFO 0 "cmdline lacks i915.enable_psr=0 (expected before 'make system'; watch for OLED flicker)"
+    ck INFO 0 "cmdline lacks i915.enable_psr=0 (expected before the install; watch for OLED flicker)"
   fi
   if command -v mokutil >/dev/null 2>&1; then
     ck INFO 0 "secure boot: $({ mokutil --sb-state 2>/dev/null || echo unknown; } | tr '\n' ' ')"
+  fi
+  local kver kmaj krest kmin
+  kver="$(uname -r | cut -d- -f1)"; kmaj="${kver%%.*}"; krest="${kver#*.}"; kmin="${krest%%.*}"
+  if [ "${kmaj:-0}" -lt 6 ] || { [ "${kmaj:-0}" -eq 6 ] && [ "${kmin:-0}" -lt 11 ]; }; then
+    ck WARN 0 "kernel $kver < 6.11 — detaching the keyboard will drop Wi-Fi (asus-wmi quirk landed in 6.11, V6)"
+  else
+    ck PASS 0 "kernel $kver >= 6.11 — keyboard detach keeps Wi-Fi (V6)"
   fi
 
   echo
@@ -166,13 +247,11 @@ cmd_doctor() {
   if [ -n "$nvme_names" ]; then
     ck PASS 1 "NVMe visible: $nvme_names"
   else
-    ck FAIL 1 "no NVMe device visible — check BIOS VMD/RST (LOOK, don't toggle: PLAN.md V16)"
+    ck FAIL 1 "no NVMe device visible — check BIOS VMD/RST (LOOK, don't toggle: docs/HARDWARE.md V16)"
   fi
   # Captured, then matched. `lspci | grep -qi ...` under this script's pipefail
   # can return 141: grep exits at the first match and lspci takes SIGPIPE on the
   # rest of its output, turning a successful match into a reported failure.
-  # (system/lib.sh's out_matches carries the full explanation; duo is
-  # deliberately self-contained and does not source it.)
   local vmd_out=""
   if command -v lspci >/dev/null 2>&1; then
     vmd_out="$(lspci 2>/dev/null || true)"
@@ -183,7 +262,7 @@ cmd_doctor() {
 
   echo
   echo "-- graphics & panels (V9/V10) --"
-  local gpu_found=0 d
+  local gpu_found=0
   for d in /sys/bus/pci/devices/*; do
     if [ "$(cat "$d/vendor" 2>/dev/null)" = 0x8086 ] && [ "$(cat "$d/device" 2>/dev/null)" = 0x7d55 ]; then
       gpu_found=1
@@ -198,7 +277,7 @@ cmd_doctor() {
       connected=$((connected+1))
       ck PASS 0 "panel $p: connected (enabled: $en)"
     else
-      ck FAIL 1 "panel $p: $st — the i915 second-screen problem? (PLAN.md V9/R5)"
+      ck FAIL 1 "panel $p: $st — the i915 second-screen problem? (docs/HARDWARE.md V9)"
     fi
   done
   [ "$connected" = 2 ] && ck PASS 1 "both internal panels detected"
@@ -229,6 +308,11 @@ cmd_doctor() {
   else
     ck WARN 0 "no session bus/gdbus — skipping Mutter check (TTY?)"
   fi
+  if [ -x "$PYGI" ] && "$PYGI" -c 'import gi' >/dev/null 2>&1; then
+    ck PASS 0 "PyGObject importable by $PYGI"
+  else
+    ck WARN 0 "PyGObject missing for $PYGI — install python3-gi (sudo ./install.sh --system does)"
+  fi
 
   echo
   echo "-- keyboard (V8/V10) --"
@@ -237,7 +321,7 @@ cmd_doctor() {
     if [ -d /sys/module/hid_asus ]; then
       ck PASS 0 "hid_asus module loaded"
     else
-      ck WARN 0 "hid_asus not bound to $KBD_VID:$KBD_PID — typing works via hid-generic, but the media/Fn-row keys (brightness/volume/backlight) need hid_asus support for this device (absent upstream as of the research, V8) or a zenduo userspace remap"
+      ck WARN 0 "hid_asus not bound to $KBD_VID:$KBD_PID — typing works via hid-generic; the media/Fn-row keys need 'duo watch-fn' (mainline has no entry for this device, V8)"
     fi
   else
     ck INFO 0 "keyboard not attached via USB right now (detached/BT is fine — re-run attached for full coverage)"
@@ -257,7 +341,7 @@ cmd_doctor() {
       if [ -w "$node" ]; then
         ck PASS 0 "hidraw node $node present and writable (udev rule active)"
       else
-        ck INFO 0 "hidraw node $node present, not writable by this user (udev rule installs with 'make system')"
+        ck INFO 0 "hidraw node $node present, not writable by this user (the udev rule installs with 'sudo ./install.sh --system')"
       fi
     fi
   done
@@ -307,6 +391,13 @@ cmd_doctor() {
   else
     ck FAIL 0 "no sound cards registered — 'dummy output' likely (V11: firmware-sof-signed + kernel)"
   fi
+  if [ -x /usr/local/sbin/duo-cs35l41-check ]; then
+    if /usr/local/sbin/duo-cs35l41-check >/dev/null 2>&1; then
+      ck PASS 0 "CS35L41 speaker amps powered up cleanly this boot"
+    else
+      ck WARN 0 "CS35L41 amps FAILED their power-up handshake this boot — sound is unprotected/distorted; full power-off fixes it (see docs/HARDWARE.md)"
+    fi
+  fi
 
   echo
   echo "-- network (V15) --"
@@ -318,7 +409,7 @@ cmd_doctor() {
     ck INFO 0 "wifi: $wifi_id"
     case "$wifi_id" in
       *AX211*|*51f1*) ck PASS 0 "Intel AX211 — well supported" ;;
-      *BE200*|*272b*) ck WARN 0 "Intel BE200 — watch for post-suspend drops (PLAN.md §14.6/V15)" ;;
+      *BE200*|*272b*) ck WARN 0 "Intel BE200 — watch for post-suspend drops (docs/HARDWARE.md V15)" ;;
     esac
   else
     ck INFO 0 "wifi card id unavailable (lspci missing?); interfaces: $(ls /sys/class/net 2>/dev/null | tr '\n' ' ')"
@@ -336,22 +427,48 @@ cmd_doctor() {
   if [ -r /sys/firmware/acpi/platform_profile ]; then
     ck INFO 0 "platform_profile: $(cat /sys/firmware/acpi/platform_profile) (choices: $(cat /sys/firmware/acpi/platform_profile_choices 2>/dev/null || echo '?'))"
   else
-    ck INFO 0 "no platform_profile node (thermal profiles deferred, PLAN.md §15)"
+    ck INFO 0 "no platform_profile node (thermal profiles unavailable)"
   fi
   if [ -r /sys/power/mem_sleep ]; then
     ck INFO 0 "mem_sleep: $(cat /sys/power/mem_sleep) (s2idle-only expected, V13)"
   fi
 
   echo
+  echo "-- install state --"
+  local bin
+  bin="$(command -v duo 2>/dev/null || true)"
+  if [ -n "$bin" ]; then
+    ck INFO 0 "duo on PATH: $bin -> $(readlink -f "$bin")"
+  else
+    ck INFO 0 "duo is not on PATH (running from $DUO_ROOT)"
+  fi
+  if [ -x "$HELPER" ]; then ck PASS 0 "root helper installed: $HELPER"; else ck INFO 0 "root helper not installed (sync-backlight / bat-limit need it: sudo ./install.sh --system)"; fi
+  if [ -r /etc/sudoers.d/zenduo ] 2>/dev/null || sudo -n -l "$HELPER" >/dev/null 2>&1; then
+    if sudo -n -l "$HELPER" >/dev/null 2>&1; then ck PASS 0 "sudoers rule grants $HELPER to $USER"; else ck INFO 0 "sudoers rule present but not for $USER"; fi
+  else
+    ck INFO 0 "no sudoers rule for the helper"
+  fi
+  if [ -e /etc/udev/rules.d/70-zenduo.rules ]; then ck PASS 0 "udev rule installed"; else ck INFO 0 "udev rule not installed"; fi
+  if [ -e /etc/libinput/local-overrides.quirks ]; then ck PASS 0 "libinput palm-rejection quirk installed"; else ck INFO 0 "libinput palm-rejection quirk not installed"; fi
+  ck INFO 0 "config: $(conf_path) ($([ -r "$(conf_path)" ] && echo present || echo 'absent, defaults apply'))"
+  if have_user_systemd; then
+    for f in $USER_FEATURES; do
+      ck INFO 0 "feature $f: $(unit_state "$f")$(unit_is_hm_managed "$f" && echo ' (home-manager)')"
+    done
+  else
+    ck INFO 0 "no user systemd session — daemon state unknown from here"
+  fi
+
+  echo
   echo "-- kernel log scan --"
   if dmesg >/dev/null 2>&1; then
     local bad
-    bad="$(dmesg 2>/dev/null | grep -iE '(i915|asus|sof).*(error|fail|timeout)' | tail -n 5 || true)"
+    bad="$(dmesg 2>/dev/null | grep -iE '(i915|asus|sof|cs35l41).*(error|fail|timeout)' | tail -n 5 || true)"
     if [ -n "$bad" ]; then
       ck WARN 0 "suspicious dmesg lines (last 5):"
       printf '%s\n' "$bad" | sed 's/^/         /'
     else
-      ck PASS 0 "no i915/asus/sof errors in dmesg"
+      ck PASS 0 "no i915/asus/sof/cs35l41 errors in dmesg"
     fi
   else
     ck INFO 0 "dmesg not readable as this user — re-run with sudo for the log scan"
@@ -360,36 +477,17 @@ cmd_doctor() {
   echo
   echo "== summary: $D_PASS ok, $D_WARN warnings, $D_FAIL failures ($D_MUSTFAIL gate-critical) =="
   if [ "$D_MUSTFAIL" -gt 0 ]; then
-    echo "== GATE: NO-GO — a MUST check failed (PLAN.md Phase C). Do not modify the disk. =="
+    echo "== GATE: NO-GO — a MUST check failed. On a live USB: do not modify the disk. =="
     return 1
   fi
-  echo "== GATE: no MUST failures. Complete the manual checks in PLAN.md §6 before installing. =="
-}
-
-# ── display commands ─────────────────────────────────────────────────────────
-
-# watch-displays and apply-displays live in lib/watch_displays.py: the layout
-# has to be *converged* (compare wanted vs actual on every wake-up), not merely
-# toggled on keyboard edges, or anything that reconfigures Mutter behind our
-# back — resume from suspend above all — leaves the bottom panel lit under a
-# docked keyboard until it is physically re-docked.
-
-override_active() { # -> prints the overriding connectors, or nothing
-  local f="${XDG_RUNTIME_DIR:-/tmp/zenduo-$(id -u)}/zenduo/display-override.json"
-  [ -r "$f" ] || return 1
-  python3 -c 'import json,sys
-try:
-    doc = json.load(open(sys.argv[1]))
-except Exception:
-    sys.exit(1)
-print(("docked" if doc.get("docked") else "undocked") + ": " + ", ".join(doc.get("want", [])))' "$f" 2>/dev/null
+  echo "== GATE: no MUST failures. =="
 }
 
 # ── backlight sync ───────────────────────────────────────────────────────────
 
 guess_backlights() { # sets SRC_BL and DST_BL
-  SRC_BL="${1:-intel_backlight}"
-  DST_BL="${2:-}"
+  SRC_BL="${1:-$(conf_get BACKLIGHT_SOURCE)}"
+  DST_BL="${2:-$(conf_get BACKLIGHT_TARGET)}"
   if [ -z "$DST_BL" ]; then
     local d
     # Prefer the bottom panel's native DRM backlight (card*-eDP-2-backlight).
@@ -398,9 +496,7 @@ guess_backlights() { # sets SRC_BL and DST_BL
     for d in $(backlight_devices); do
       case "$d" in
         *eDP-2*|*edp-2*)
-          # Never pick the source as its own destination: `sync-backlight
-          # card1-eDP-2-backlight` would otherwise "sync" the device onto itself
-          # and report success.
+          # Never pick the source as its own destination.
           if [ "$d" != "$SRC_BL" ]; then DST_BL="$d"; break; fi
           ;;
       esac
@@ -420,11 +516,11 @@ guess_backlights() { # sets SRC_BL and DST_BL
 
 cmd_sync_backlight() {
   guess_backlights "${1:-}" "${2:-}"
-  [ -n "${DST_BL:-}" ] || { log "only one backlight device ($(backlight_devices | tr '\n' ' ')) — nothing to sync (VERIFY-ON-HW: bottom panel device name)"; return 1; }
+  [ -n "${DST_BL:-}" ] || { log "only one backlight device ($(backlight_devices | tr '\n' ' ')) — nothing to sync"; return 1; }
   local pct
   pct="$(backlight_pct_num "$SRC_BL")" || { log "cannot read $SRC_BL"; return 1; }
-  sudo -n /usr/local/sbin/zenduo-helper backlight "$DST_BL" "$pct" \
-    || { log "helper call failed — is the sudoers rule installed? (sudo make system HOST=zenbook-duo)"; return 1; }
+  sudo -n "$HELPER" backlight "$DST_BL" "$pct" \
+    || { log "helper call failed — is the sudoers rule installed? (sudo ./install.sh --system)"; return 1; }
   log "synced $SRC_BL ($pct%) -> $DST_BL"
 }
 
@@ -491,6 +587,13 @@ cmd_kb_backlight() {
 
 cmd_bat_limit() {
   local pct="${1:-}"
+  if [ -z "$pct" ]; then
+    pct="$(conf_get BATTERY_LIMIT)"
+    if [ -z "$pct" ]; then
+      log "no BATTERY_LIMIT in $(conf_path) — nothing to apply (set one with: duo config set BATTERY_LIMIT 80)"
+      return 0
+    fi
+  fi
   if ! [[ "$pct" =~ ^[0-9]+$ ]] || [ "$pct" -lt 20 ] || [ "$pct" -gt 100 ]; then
     usage
   fi
@@ -504,10 +607,10 @@ cmd_bat_limit() {
     fi
   done
   if [ "$applied" = 0 ]; then
-    sudo -n /usr/local/sbin/zenduo-helper batlimit "$pct" \
-      || { log "cannot set battery limit (node missing or helper not installed)"; return 1; }
+    sudo -n "$HELPER" batlimit "$pct" \
+      || { log "cannot set battery limit (node missing or helper not installed — sudo ./install.sh --system)"; return 1; }
   fi
-  log "battery charge limit set to $pct% (note: resets on reboot — the home-manager module can re-apply it at login)"
+  log "battery charge limit set to $pct% (resets on reboot — the bat-limit feature re-applies it at login)"
 }
 
 # ── tablet mapping / rotation / fn-probe ─────────────────────────────────────
@@ -515,7 +618,7 @@ cmd_bat_limit() {
 cmd_set_tablet_mapping() {
   command -v dconf >/dev/null 2>&1 || { log "dconf not found — GNOME session required"; return 1; }
   # Ask Mutter which vendor/product/serial each panel reports, then pin each
-  # ELAN digitizer to its panel (GNOME 46+ honors these keys; PLAN.md V7).
+  # ELAN digitizer to its panel (GNOME 46+ honors these keys; V7).
   "$PYGI" - "$LIB/displayctl.py" <<'PYEOF'
 import json, subprocess, sys
 state = json.loads(subprocess.check_output(
@@ -532,11 +635,11 @@ for digitizer, connector in pairs:
     subprocess.run(["dconf", "write", key, value], check=True)
     print(f"set-tablet-mapping: {digitizer} -> {connector} {value}")
 PYEOF
-  log "tablet mapping written (VERIFY-ON-HW: PLAN.md test I-11/I-12)"
+  log "tablet mapping written (VERIFY-ON-HW: docs/PLAN.md phase P)"
 }
 
 cmd_watch_rotation() {
-  command -v monitor-sensor >/dev/null 2>&1 || { log "monitor-sensor missing (iio-sensor-proxy) — sudo make system HOST=zenbook-duo"; return 1; }
+  command -v monitor-sensor >/dev/null 2>&1 || { log "monitor-sensor missing (iio-sensor-proxy) — sudo ./install.sh --system"; return 1; }
   log "watch-rotation started (EXPERIMENTAL — logs orientation, applies no changes yet)"
   trap 'log "watch-rotation stopping"; exit 0' INT TERM
   monitor-sensor --accel 2>/dev/null | while read -r line; do
@@ -553,9 +656,6 @@ cmd_fn_probe() {
 }
 
 cmd_fn_map() {
-  # Friendly companion to fn-probe: names each Fn key, waits for the press,
-  # captures its raw HID report, and writes ~/.config/zenduo/fn-map.json for a
-  # future `duo watch-fn` to consume. `duo fn-map --show` prints the saved map.
   python3 "$LIB/fn_map.py" "$@"
 }
 
@@ -579,7 +679,9 @@ cmd_status() {
   done
   if kb_attached; then echo "keyboard: attached (USB $KBD_VID:$KBD_PID)"; else echo "keyboard: detached (or BT)"; fi
   local ov
-  if ov="$(override_active)" && [ -n "$ov" ]; then
+  if [ "$ZENDUO_DOCK_POLICY" != 1 ]; then
+    echo "dock policy: OFF in $(conf_path) (DOCK_POLICY=$ZENDUO_DOCK_POLICY)"
+  elif ov="$(override_active)" && [ -n "$ov" ]; then
     echo "dock policy: PAUSED by a manual layout ($ov) — 'duo apply-displays' resumes it"
   else
     echo "dock policy: active (bottom panel off while docked, on when undocked)"
@@ -592,9 +694,140 @@ cmd_status() {
   done
   local f
   for f in /sys/class/power_supply/BAT*/charge_control_end_threshold; do
-    [ -e "$f" ] && echo "battery limit: $(cat "$f")%"
+    [ -e "$f" ] && echo "battery limit: $(cat "$f")% (configured: $(conf_get BATTERY_LIMIT || true))"
   done
   true
+}
+
+# ── features / config ────────────────────────────────────────────────────────
+
+feature_desc() {
+  case "$1" in
+    watch-displays) echo "bottom panel off while the keyboard is docked, back on when it comes off" ;;
+    watch-fn)       echo "keyboard hotkey mode + brightness/second-screen/kb-backlight keys" ;;
+    watch-backlight) echo "keep the bottom panel backlight synced to the top (off by default)" ;;
+    watch-rotation) echo "log accelerometer orientation (EXPERIMENTAL)" ;;
+    bat-limit)      echo "re-apply BATTERY_LIMIT from the config at login" ;;
+    speaker-dsp)    echo "EasyEffects voicing chain for the built-in speakers" ;;
+    psr-fix)        echo "i915.enable_psr=0 on the kernel command line (OLED flicker)" ;;
+    palm-rejection) echo "libinput quirk so disable-while-typing covers the detachable touchpad" ;;
+    amp-check)      echo "notify when the CS35L41 speaker amps fail to power up" ;;
+    *) echo "" ;;
+  esac
+}
+
+cmd_features() {
+  printf '%-16s %-32s %s\n' FEATURE STATE WHAT
+  local f
+  for f in $USER_FEATURES; do
+    printf '%-16s %-32s %s\n' "$f" "$(unit_state "$f")$(unit_is_hm_managed "$f" && echo ' [hm]')" "$(feature_desc "$f")"
+  done
+  local dsp="not installed"
+  if python3 "$LIB/speaker_dsp.py" status 2>/dev/null | grep -q 'db seeded (EasyEffects 8): yes'; then dsp="installed"; fi
+  printf '%-16s %-32s %s\n' speaker-dsp "$dsp" "$(feature_desc speaker-dsp)"
+  echo
+  echo "system features (root; change with: sudo ./install.sh --system --<flag> / --no-<flag>)"
+  printf '%-16s %-32s %s\n' psr-fix "$(grep -q 'i915.enable_psr=0' /proc/cmdline 2>/dev/null && echo active || echo inactive)" "$(feature_desc psr-fix)"
+  printf '%-16s %-32s %s\n' palm-rejection "$([ -e /etc/libinput/local-overrides.quirks ] && echo installed || echo absent)" "$(feature_desc palm-rejection)"
+  printf '%-16s %-32s %s\n' amp-check "$(systemctl is-enabled duo-cs35l41-check.service 2>/dev/null || echo absent)" "$(feature_desc amp-check)"
+  echo
+  echo "[hm] = unit generated by home-manager; 'duo enable/disable' lasts until the next switch."
+}
+
+cmd_enable() {
+  local f="${1:-}"
+  [ -n "$f" ] || usage
+  case " $USER_FEATURES " in
+    *" $f "*)
+      have_user_systemd || { log "no user systemd session"; return 1; }
+      systemctl --user cat "duo-$f.service" >/dev/null 2>&1 || { log "unit duo-$f is not installed — run ./install.sh --user"; return 1; }
+      unit_is_hm_managed "$f" && log "note: duo-$f is generated by home-manager; set zenduo.$f there to make this stick"
+      systemctl --user enable --now "duo-$f.service"
+      log "enabled duo-$f"
+      ;;
+    *)
+      case "$f" in
+        speaker-dsp) python3 "$LIB/speaker_dsp.py" install ;;
+        psr-fix|palm-rejection|amp-check) log "system feature — run: sudo ./install.sh --system --$f" ;;
+        *) log "unknown feature '$f' (see: duo features)"; return 64 ;;
+      esac
+      ;;
+  esac
+}
+
+cmd_disable() {
+  local f="${1:-}"
+  [ -n "$f" ] || usage
+  case " $USER_FEATURES " in
+    *" $f "*)
+      have_user_systemd || { log "no user systemd session"; return 1; }
+      unit_is_hm_managed "$f" && log "note: duo-$f is generated by home-manager; set zenduo.$f = false there to make this stick"
+      systemctl --user disable --now "duo-$f.service" 2>/dev/null || true
+      log "disabled duo-$f"
+      ;;
+    *)
+      case "$f" in
+        speaker-dsp) python3 "$LIB/speaker_dsp.py" uninstall ;;
+        psr-fix|palm-rejection|amp-check) log "system feature — run: sudo ./install.sh --system --no-$f" ;;
+        *) log "unknown feature '$f' (see: duo features)"; return 64 ;;
+      esac
+      ;;
+  esac
+}
+
+cmd_config() {
+  case "${1:-show}" in
+    show)
+      echo "# $(conf_path) ($([ -r "$(conf_path)" ] && echo present || echo 'absent — built-in defaults'))"
+      local key
+      for key in $(conf_defaults | cut -d= -f1); do
+        printf '%s=%s\n' "$key" "$(conf_get "$key")"
+      done
+      ;;
+    get) [ -n "${2:-}" ] || usage; conf_get "$2" ;;
+    set) [ -n "${2:-}" ] && [ -n "${3:-}" ] || usage; conf_set "$2" "$3" && log "$2=$3 written to $(conf_path) (restart the daemon that reads it)" ;;
+    path) conf_path ;;
+    *) usage ;;
+  esac
+}
+
+cmd_speaker_dsp() {
+  [ -n "${1:-}" ] || usage
+  python3 "$LIB/speaker_dsp.py" "$@"
+}
+
+cmd_report() {
+  echo "== zenduo report — $(date -u +%FT%TZ) =="
+  echo
+  cmd_doctor || true
+  echo
+  echo "== status =="
+  cmd_status || true
+  echo
+  echo "== features =="
+  cmd_features || true
+  echo
+  echo "== config =="
+  cmd_config show || true
+  echo
+  echo "== zenduo journal (last 100) =="
+  journalctl --user -t "$TAG" -n 100 --no-pager 2>/dev/null || echo "(journal unavailable)"
+  echo
+  echo "== daemon journals (last 40 each) =="
+  local f
+  for f in $USER_FEATURES; do
+    echo "-- duo-$f"
+    journalctl --user -u "duo-$f.service" -n 40 --no-pager 2>/dev/null || true
+  done
+  echo
+  echo "== kernel: i915 / asus / sof / cs35l41 (last 40) =="
+  { dmesg 2>/dev/null || journalctl -k -b --no-pager 2>/dev/null; } | grep -iE 'i915|asus|sof|cs35l41' | tail -n 40 || true
+  echo
+  echo "== hid / input =="
+  for u in /sys/class/hidraw/hidraw*/device/uevent; do
+    [ -r "$u" ] && { echo "-- $u"; grep -E 'HID_ID|HID_NAME' "$u"; }
+  done 2>/dev/null || true
+  echo "== end of report =="
 }
 
 # ── dispatch ─────────────────────────────────────────────────────────────────
@@ -603,6 +836,10 @@ cmd="${1:-}"; shift || true
 case "$cmd" in
   doctor)             cmd_doctor "$@" ;;
   status)             cmd_status "$@" ;;
+  features)           cmd_features "$@" ;;
+  enable)             cmd_enable "$@" ;;
+  disable)            cmd_disable "$@" ;;
+  config)             cmd_config "$@" ;;
   top|bottom|both|toggle) "$PYGI" "$LIB/displayctl.py" "$cmd" "$@" ;;
   watch-displays)     exec "$PYGI" "$LIB/watch_displays.py" "$@" ;;
   apply-displays)     exec "$PYGI" "$LIB/watch_displays.py" --once "$@" ;;
@@ -612,11 +849,14 @@ case "$cmd" in
   watch-fn)           cmd_watch_fn "$@" ;;
   kb-backlight)       cmd_kb_backlight "$@" ;;
   bat-limit)          cmd_bat_limit "$@" ;;
+  speaker-dsp)        cmd_speaker_dsp "$@" ;;
   set-tablet-mapping) cmd_set_tablet_mapping "$@" ;;
   watch-rotation)     cmd_watch_rotation "$@" ;;
   fn-probe)           cmd_fn_probe "$@" ;;
   fn-map)             cmd_fn_map "$@" ;;
   watch-input)        cmd_watch_input "$@" ;;
+  report)             cmd_report "$@" ;;
   log)                journalctl --user -t "$TAG" -f ;;
-  *)                  usage ;;
+  version|--version)  cat "$DUO_ROOT/VERSION" 2>/dev/null || echo dev ;;
+  help|-h|--help|*)   usage ;;
 esac

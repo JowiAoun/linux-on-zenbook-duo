@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """watch-fn — make the Zenbook Duo keyboard's media keys actually do things.
 
-Ground truth (INSTALL-LOG Round 10): mainline hid-asus has no entry for this
+Ground truth (docs/install/INSTALL-LOG.md, Round 10): mainline hid-asus has no entry for this
 keyboard, so nothing in the kernel initializes it or handles its vendor codes.
 After `kb-init` sends the ASUS handshake + OOBE-disable, the keyboard's media
 layer switches on and the F-row emits ASUS vendor reports (report id 0x5a):
@@ -20,7 +20,7 @@ This daemon closes the loop:
   - honors ~/.config/zenduo/fn-map.json (from `duo fn-map`) as overrides, so
     newly-captured codes map onto actions without touching this file
 
-Run via the duo-watch-fn systemd user service (zenbook-duo home-manager module)
+Run via the duo-watch-fn systemd user service (installed by ./install.sh, or the home-manager module)
 or by hand: `duo watch-fn`. Needs the udev uaccess rule for hidraw access.
 """
 
@@ -97,6 +97,8 @@ class Dispatcher:
         Docking, undocking and resuming all blank it in hardware, which is why
         it "went dark" on every transition even though the level was known.
         """
+        if os.environ.get("ZENDUO_KB_BACKLIGHT_RESTORE", "1") != "1":
+            return  # KB_BACKLIGHT_RESTORE=0 in zenduo.conf
         level = kb_backlight.read_level()
         if level:
             log(f"restoring keyboard backlight to level {level}")

@@ -1,0 +1,38 @@
+# zenduo — ~/.config/zenduo/zenduo.conf
+#
+# Tunables for the duo daemons and commands. `KEY=value`, one per line, no
+# quotes needed. Which daemons RUN is not decided here: that is the systemd
+# unit state — `duo features` shows it, `duo enable <feature>` /
+# `duo disable <feature>` change it. This file holds the knobs those daemons
+# read. Restart a daemon after changing its knob: systemctl --user restart duo-<name>
+#
+# `duo config` prints the effective values (file + built-in defaults).
+
+# How layout changes are handed to Mutter: temporary | persistent
+#
+# "temporary" never touches ~/.config/monitors.xml, so nothing zenduo does
+# survives a session restart. "persistent" writes monitors.xml — VERIFIED ON
+# HARDWARE AND REJECTED as a daemon default: gnome-shell treats a persistent
+# apply as a user-initiated change and pops "Keep display settings?" on every
+# dock, undock and resume. Leave this alone unless you know exactly why.
+APPLY_METHOD=temporary
+
+# Battery charge-limit percentage (20-100), re-applied at login by the
+# duo-bat-limit feature (the sysfs threshold resets on reboot). Empty = do not
+# touch the threshold. 80 is a good default for a mostly-plugged-in laptop.
+BATTERY_LIMIT=
+
+# Which backlight the brightness keys and `duo sync-backlight` copy FROM and TO.
+# Empty target = auto (the eDP-2 DRM backlight, which tracks the real bottom
+# panel level; asus_screenpad reports a fixed value and is never picked).
+BACKLIGHT_SOURCE=intel_backlight
+BACKLIGHT_TARGET=
+
+# Put the keyboard backlight back to its remembered level after the keyboard
+# re-enumerates (dock, undock, resume all blank it in hardware). 1 = yes.
+KB_BACKLIGHT_RESTORE=1
+
+# Enforce the dock policy at all (bottom panel off while the keyboard is on it,
+# back on when it comes off). 0 makes duo-watch-displays a no-op while still
+# running, which is handy for a day of experiments without disabling the unit.
+DOCK_POLICY=1

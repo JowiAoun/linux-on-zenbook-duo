@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Keyboard-backlight fallback for the ASUS Zenbook Duo keyboard (0b05:1b2c).
 
-Mainline hid-asus has no entry for this device (PLAN.md V8), so on current
+Mainline hid-asus has no entry for this device (docs/HARDWARE.md, V8), so on current
 kernels there is no /sys/class/leds/asus::kbd_backlight node and we set the
 backlight ourselves with the HID feature report the kernel driver would
 send: {0x5a, 0xba, 0xc5, 0xc4, <level 0-3>} (constants from hid-asus.c —
@@ -9,7 +9,7 @@ facts, not copied code).
 
 Transport: /dev/hidraw* via the HIDIOCSFEATURE ioctl. Unlike pyusb this
 never detaches the kernel driver, so typing keeps working. Unprivileged
-access requires the udev uaccess rule installed by system/45-duo-udev.sh.
+access requires the udev uaccess rule installed by system/45-udev.sh.
 A pyusb path is intentionally NOT implemented — if hidraw fails we want to
 know why, not silently degrade to a driver-detaching transport.
 
@@ -127,7 +127,7 @@ def set_level(level):
             os.close(fd)
     if denied:
         print("kb_backlight: permission denied on hidraw — install the udev rule "
-              "(sudo make system HOST=zenbook-duo) or re-attach the keyboard",
+              "(sudo ./install.sh --system) or re-attach the keyboard",
               file=sys.stderr)
         return 13
     print("kb_backlight: the vendor interface rejected the report at every length",

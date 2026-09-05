@@ -45,7 +45,7 @@ to the layout it HAS, which covers all of these at once:
 Wake-ups come from three sources:
 
   1. a 1 Hz sysfs poll of the keyboard with a 2-sample debounce — deliberately
-     NOT udev, which storms on this pogo-pin device forest (PLAN.md V14);
+     NOT udev, which storms on this pogo-pin device forest (docs/HARDWARE.md V14);
   2. Mutter's MonitorsChanged signal, so a layout change is corrected in the
      same breath instead of up to a second later;
   3. logind's PrepareForSleep, so resume re-checks even when nothing else
@@ -70,9 +70,13 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dock  # noqa: E402  (same directory)
-import displayctl  # noqa: E402  (also imports gi; exits 1 if python3-gi is missing)
+import displayctl  # noqa: E402  (same directory)
 
-from gi.repository import Gio, GLib  # noqa: E402  (safe: displayctl imported it)
+try:
+    from gi.repository import Gio, GLib  # noqa: E402
+except ImportError:
+    print(displayctl.GI_MISSING, file=sys.stderr)
+    sys.exit(1)
 
 POLL_SECONDS = 1
 DEBOUNCE_SAMPLES = 2      # 2 s of agreement before a dock/undock counts
@@ -114,6 +118,7 @@ class Watcher:
         self._applies = []      # monotonic timestamps, for storm detection
         self._announced_override = None
         self._announced_mirror = False
+        self._announced_policy_off = False
         self._pending_undock = False  # an undock edge still owing the bottom panel
         self._children = []     # backgrounded sync-backlight runs, reaped by the poll
         self.loop = GLib.MainLoop()
@@ -149,7 +154,7 @@ class Watcher:
         The bottom panel comes back at whatever level it was last left at —
         typically full brightness against a dimmed top panel, which is jarring
         the moment you undock. Strictly best effort and never blocking: the
-        sync needs the root helper (system/50-duo-sudoers.sh), and a machine
+        sync needs the root helper (system/50-sudoers.sh), and a machine
         without it must still get the layout change.
         """
         try:
@@ -245,6 +250,16 @@ class Watcher:
             # that AGREES is not ambiguous, so that path corrects immediately.
             self.schedule(POLL_SECONDS * 1000)
             return 0
+
+        if os.environ.get("ZENDUO_DOCK_POLICY", "1") != "1":
+            # DOCK_POLICY=0 in zenduo.conf: keep running (so the unit stays
+            # healthy and the knob can be flipped back without a re-enable)
+            # but never touch the layout.
+            if not self._announced_policy_off:
+                self._announced_policy_off = True
+                log("dock policy is OFF (DOCK_POLICY=0 in zenduo.conf) — watching, not acting")
+            return 0
+        self._announced_policy_off = False
 
         override = dock.read_override()
         if override is not None and bool(override.get("docked")) == self.docked:

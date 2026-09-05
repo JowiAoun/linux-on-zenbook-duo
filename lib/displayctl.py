@@ -13,7 +13,7 @@ Commands:
     toggle             bottom panel on <-> off
     only C1 [C2 ...]   enable exactly these connectors
 
-Safety invariant (PLAN.md R10): any configuration that would leave ZERO
+Safety invariant (docs/DESIGN.md, R10): any configuration that would leave ZERO
 enabled panels is refused with exit code 2.
 
 Applies with Mutter's "temporary" method by default, so a broken layout
@@ -39,24 +39,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dock  # noqa: E402  (same directory; shares dock state + override marker)
 
-try:
-    import gi  # noqa: F401  (python3-gi, installed by system/40-duo-deps.sh)
-    from gi.repository import Gio, GLib
-except ImportError:
-    print("displayctl: python3-gi missing (run: sudo make system HOST=zenbook-duo)", file=sys.stderr)
-    sys.exit(1)
-
-TOP = "eDP-1"
-BOTTOM = "eDP-2"
-
-BUS_NAME = "org.gnome.Mutter.DisplayConfig"
-OBJ_PATH = "/org/gnome/Mutter/DisplayConfig"
-
-METHOD_VERIFY = 0
-METHOD_TEMPORARY = 1
-METHOD_PERSISTENT = 2
-
-
 class DisplayCtlError(Exception):
     """A failure that carries the exit code the CLI should report.
 
@@ -69,7 +51,37 @@ class DisplayCtlError(Exception):
         self.code = code
 
 
+GI_MISSING = ("displayctl: python3-gi (PyGObject) is missing for this interpreter "
+              "(run: sudo ./install.sh --system, or set DUO_PYGI to a python that has it)")
+
+# gi is imported lazily so the pure layout functions (build_config and friends)
+# stay importable — and unit-testable — on a machine without PyGObject. Anything
+# that actually talks to Mutter calls _require_gi() first.
+try:
+    from gi.repository import Gio, GLib  # python3-gi, installed by system/10-packages.sh
+    HAVE_GI = True
+except ImportError:
+    Gio = GLib = None
+    HAVE_GI = False
+
+
+def _require_gi():
+    if not HAVE_GI:
+        raise DisplayCtlError(GI_MISSING, 1)
+
+TOP = "eDP-1"
+BOTTOM = "eDP-2"
+
+BUS_NAME = "org.gnome.Mutter.DisplayConfig"
+OBJ_PATH = "/org/gnome/Mutter/DisplayConfig"
+
+METHOD_VERIFY = 0
+METHOD_TEMPORARY = 1
+METHOD_PERSISTENT = 2
+
+
 def proxy():
+    _require_gi()
     try:
         return Gio.DBusProxy.new_for_bus_sync(
             Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
@@ -305,6 +317,7 @@ def build_config(monitors, logical_monitors, properties, want, internal=(TOP, BO
 
 
 def apply_config(p, serial, logicals, dry_run=False):
+    _require_gi()
     method = METHOD_TEMPORARY
     if os.environ.get("ZENDUO_APPLY_METHOD") == "persistent":
         method = METHOD_PERSISTENT

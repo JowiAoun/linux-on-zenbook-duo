@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Switch the ASUS Zenbook Duo keyboard (0b05:1b2c) into hotkey mode.
 
-Mainline hid-asus has no entry for this device (PLAN.md V8), so the keyboard
+Mainline hid-asus has no entry for this device (docs/HARDWARE.md, V8), so the keyboard
 never receives the ASUS init handshake: Fn+Fx stay plain F1..F12 and the media
 keys emit nothing distinct (watch-input shows Fn+F5 == bare F5). hid-asus turns
 the Fn/media layer on by sending an "ASUS Tech.Inc." feature-report handshake to
@@ -15,7 +15,7 @@ so it must be re-sent on each attach; the watch-displays daemon or a udev hook
 can call `duo kb-init`.
 
 Transport: hidraw HIDIOCSFEATURE — never detaches the kernel driver, so typing
-keeps working. Needs the udev uaccess rule (system/45-duo-udev.sh) or root.
+keeps working. Needs the udev uaccess rule (system/45-udev.sh) or root.
 Exit: 0 accepted - 1 no device / all writes failed - 13 permission denied.
 """
 
@@ -228,7 +228,7 @@ def send_handshake(hint=True):
         return 0
     if denied:
         print("kb_init: permission denied on hidraw — run with sudo, or install the "
-              "udev rule (sudo make system HOST=zenbook-duo).", file=sys.stderr)
+              "udev rule (sudo ./install.sh --system).", file=sys.stderr)
         return 13
     # Deliberately a failure even though other interfaces may have swallowed the
     # bytes happily: "some interface accepted something" is what let the media

@@ -9,14 +9,14 @@ real actions (brightness, volume, keyboard backlight, ...).
 
 IMPORTANT - run `duo kb-init` first, then press each key BARE. The ASUS
 handshake flips the keyboard's layers: after it the media functions are the
-*bare* key press and HOLDING Fn gives plain F1..F12 instead (INSTALL-LOG
+*bare* key press and HOLDING Fn gives plain F1..F12 instead (docs/install/INSTALL-LOG.md,
 Round 10). Holding Fn therefore emits ordinary F-key reports, which this wizard
 filters out - you would sit at the prompt capturing nothing. The one dedicated
 key left of PrtSc has no F-key meaning and fires bare either way.
 
 Why raw reports at all: the Duo's media/Fn keys are ASUS vendor HID usages that
 hid-generic does not translate into input events, and hid_asus has no entry for
-this device (PLAN.md V8) - so the only place their signal appears is the raw
+this device (docs/HARDWARE.md, V8) - so the only place their signal appears is the raw
 hidraw stream.
 
 Reading the keyboard's hidraw stream also sees ordinary typing, so we only
@@ -32,8 +32,8 @@ Usage:
   fn_map.py            run the wizard
   fn_map.py --show     print the saved map, without re-capturing anything
 
-Unprivileged hidraw access needs the udev uaccess rule (system/45-duo-udev.sh);
-if opening a node is denied, re-run `sudo make system HOST=zenbook-duo`, or sudo.
+Unprivileged hidraw access needs the udev uaccess rule (system/45-udev.sh);
+if opening a node is denied, re-run `sudo ./install.sh --system`, or sudo.
 Map is written to  $XDG_CONFIG_HOME/zenduo/fn-map.json  (default ~/.config/...).
 Exit: 0 finished (map saved) - 1 no keyboard / nothing readable.
 """
@@ -220,7 +220,7 @@ def run_wizard():
     if not fds:
         msg = "fn-map: could not open any hidraw node"
         if denied:
-            msg += " (permission denied - run 'sudo make system HOST=zenbook-duo', or use sudo)"
+            msg += " (permission denied - run 'sudo ./install.sh --system', or use sudo)"
         print(msg, file=sys.stderr)
         return 1
 
