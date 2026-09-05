@@ -33,7 +33,7 @@ Legend: ⛔ = hard gate, do not pass on a failure.
 - [ ] A9 `chkdsk C: /scan` clean
 - [ ] A10 `ubuntu-24.04.4-desktop-amd64.iso` downloaded, SHA256 verified
 - [ ] A11 ISO written to stick #2 (Rufus GPT/UEFI or Ventoy), boot-tested
-- [ ] A12 This repo copied onto stick #2 (`duo/bin/duo` present)
+- [ ] A12 This repo copied onto stick #2 (`bin/duo` present)
 - [ ] A13 **BitLocker suspended**: `manage-bde -protectors -disable C: -RebootCount 3` (do B/C/D in one sitting)
 
 ## B · BIOS (§5, ~10 min)
@@ -45,7 +45,7 @@ Legend: ⛔ = hard gate, do not pass on a failure.
 
 - [ ] Esc-boot stick #2 → **Try Ubuntu** (NOT Install)
 - [ ] Wi-Fi connected
-- [ ] `bash <stick>/dome/duo/bin/duo doctor | tee ~/doctor-live.txt` → **no MUST failures**
+- [ ] `bash <stick>/linux-on-zenbook-duo/bin/duo doctor | tee ~/doctor-live.txt` → **no MUST failures**
 - [ ] Keyboard types attached; detach → **Wi-Fi stays up**; BT pair (left switch, PIN) → types detached
 - [ ] Both screens touch-respond (mis-mapping OK, dead touch NOT)
 - [ ] Audio + camera tried (record result; not blocking)
@@ -77,11 +77,11 @@ Legend: ⛔ = hard gate, do not pass on a failure.
 - [ ] E4 `manage-bde -status C:` → Protection On (re-enable if not)
 - [ ] E5 Ubuntu: `sudo apt update && sudo apt full-upgrade`
 - [ ] E6 `uname -r` = 6.17.x · `timedatectl` RTC in UTC
-- [ ] E7 `git clone https://github.com/JowiAoun/dome ~/.dotfiles && cd ~/.dotfiles`
-- [ ] E8 `sudo make system HOST=zenbook-duo` → reboot → `cat /proc/cmdline` has `i915.enable_psr=0`; GRUB Advanced lists 6.8.x fallback
+- [ ] E7 `git clone https://github.com/JowiAoun/linux-on-zenbook-duo ~/linux-on-zenbook-duo && cd ~/linux-on-zenbook-duo`
+- [ ] E8 `./install.sh` → reboot → `cat /proc/cmdline` has `i915.enable_psr=0`; GRUB Advanced lists 6.8.x fallback
 - [ ] E9 Suspend 2 min → resumes, Wi-Fi back
 - [ ] E10 `duo doctor` on the installed system; compare with `doctor-live.txt`
-- [ ] `./install.sh --host zenbook-duo` (Nix + home-manager layer)
+- [ ] (author only) dotfiles: `cd ~/.dotfiles && ./install.sh --host zenbook-duo` — home-manager takes over the user half
 
 ## If something breaks
 

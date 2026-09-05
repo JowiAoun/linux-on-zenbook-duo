@@ -11,7 +11,7 @@ which key code (or, for an unmapped hotkey, its raw MSC_SCAN scancode).
 Devices are found in /proc/bus/input/devices (vendor 0b05, or a name containing
 "asus"/"wmi"). Reading evdev needs root, so run it as:
 
-    sudo <repo>/duo/bin/duo watch-input
+    sudo <repo>/bin/duo watch-input
 
 Assumes a 64-bit kernel (struct input_event = 24 bytes). Ctrl-C to stop.
 Exit: 0 stopped by user - 1 no devices / nothing readable.

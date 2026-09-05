@@ -129,15 +129,17 @@ login-PIN extension, Brave/Flatpak/Docker, the app grid, the dash.
 - [x] the packaged CLI reaches Mutter over D-Bus (`duo top --dry-run`)
 - [x] `duo doctor`, `duo features`, `duo speaker-dsp status` from the checkout
       agree with the live machine
-- [ ] `sudo ./install.sh --system --dev` on the author's machine repoints
-      `/usr/local/bin/duo` (needs a password; the one step left to a human)
+- [x] `sudo ./install.sh --system --dev` on the author's machine repoints
+      `/usr/local/bin/duo` (done 2026-09-05: `/usr/local/lib/zenduo` is the checkout)
 - [ ] `home-manager switch` in dome regenerates the units against the checkout;
       `systemctl --user restart duo-*`; dock/undock, brightness keys,
       second-screen key, resume — the graduation protocol, once more
 
 ### L. Publish
 
-- [x] github.com/JowiAoun/linux-on-zenbook-duo, public, CI green
+- [x] github.com/JowiAoun/linux-on-zenbook-duo, public
+- [ ] CI green (the first runs failed on shellcheck, then on the SIGPIPE
+      demonstration under a runner that ignores SIGPIPE — both fixed 2026-09-05)
 - [ ] tag `v0.9.0` once K is complete
 
 ---

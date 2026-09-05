@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- `duo status`, `duo doctor` and `watch-fn` report a docked keyboard whose USB
+  link enumerated but failed to configure (`can't set config #1, error -71`;
+  seen 2026-09-05) and say to re-seat it; `watch-fn` no longer goes silent
+  when the keyboard vanishes
+- `watch-fn`: mic-mute (`5a 7c`, via `wpctl`) and emoji (`5a 7e`, via
+  `ibus emoji`), mapped from their hid-asus codes — keycaps to be verified
+- `duo log` now shows the daemons: every unit logs under the `zenduo`
+  identifier and nothing is logged twice (units from before this need a
+  re-install or `home-manager switch`; `duo log` follows the old identifier too)
+- `sudo ./install.sh --dry-run` no longer runs the user half for real, and
+  `--battery-limit`, `--speaker-dsp`, `--prefix` and the `--watch-*` switches
+  reach it
+- `./install.sh --user` stands down on a home-manager machine instead of
+  writing units beside the module's; `bat-limit` is no longer re-enabled on
+  every run
+- `./uninstall.sh --prefix` without a value is a usage error
+- CI: the SIGPIPE demonstration accepts exit 1 (GitHub's runners ignore
+  SIGPIPE), so the workflow can pass; `actions/checkout@v5`
+
 ## 0.9.0 — 2026-09-05
 
 Extracted from [JowiAoun/dome](https://github.com/JowiAoun/dome) after six

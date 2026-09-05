@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # zenduo-helper — the ONLY zenduo code that runs as root (via the NOPASSWD
-# sudoers rule installed by system/50-duo-sudoers.sh, scoped to exactly
+# sudoers rule installed by system/50-sudoers.sh, scoped to exactly
 # this binary at /usr/local/sbin/zenduo-helper).
 #
 # Verbs (input strictly validated, nothing else accepted):
