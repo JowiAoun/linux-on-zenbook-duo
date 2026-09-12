@@ -54,10 +54,28 @@ Wake-ups come from three sources:
 
 A manual `duo top/bottom/both/toggle/only` (including the second-screen Fn key,
 which runs `duo toggle`) records an override; while it matches the current dock
-state the policy is not enforced, so a deliberate choice sticks. Docking or
-undocking retires it. `duo apply-displays` drops it and converges once.
+state the policy is not enforced, so a deliberate choice sticks. Docking,
+undocking, or plugging a monitor in or out retires it. `duo apply-displays`
+drops it and converges once.
 
-Usage: watch_displays.py [--once]
+The daemon also keeps Mutter's per-monitor-set layout memory up to date
+(lib/monitors_xml.py), which is what makes the machine behave like Windows:
+whatever layout is on screen when things settle is recorded as the layout for
+the monitors that are connected, so the next lid-open, hotplug or boot comes
+back to it — including the lock screen and, through `duo layout login`, the
+greeter. Mutter only ever wrote that file for GNOME Settings' "Keep changes",
+so a layout chosen with Super+P was forgotten the moment the connectors were
+re-probed. Recording it needs no apply: no flicker, no confirmation dialog.
+
+Two things are deliberately NOT remembered: a manual override (it is temporary
+by definition, and lapses at the next dock change) and anything applied while
+the daemon is in storm backoff. Restoring is a backstop only — Mutter does it
+first and earlier — for the cases where Mutter falls back instead: a monitor
+whose mode list changed, a stored layout it refused because the lid was shut
+over a panel, or a gnome-shell restart. It runs when the monitor set changes
+and after resume, never in the middle of the user changing things.
+
+Usage: watch_displays.py [--once]   (--once: converge now, then record)
 Exit codes: 0 ok · 1 Mutter/D-Bus failure (--once only) · 2 refused by R10.
 """
 
@@ -70,6 +88,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dock  # noqa: E402  (same directory)
 import displayctl  # noqa: E402  (same directory)
+import monitors_xml  # noqa: E402  (same directory)
 
 try:
     from gi.repository import Gio, GLib  # noqa: E402
@@ -82,6 +101,11 @@ DEBOUNCE_SAMPLES = 2      # 2 s of agreement before a dock/undock counts
 COALESCE_MS = 300         # Mutter emits MonitorsChanged several times per change
 RESUME_SETTLE_SECONDS = 3  # let USB re-enumerate and Mutter finish restoring
 RETRY_SECONDS = 5
+# How long the layout has to hold still before it counts as the user's choice.
+# Long enough to coalesce a dock transition (which applies twice) and GNOME
+# Settings' preview-then-confirm, short enough that closing the lid and
+# walking away still records what was on screen.
+RECORD_SETTLE_SECONDS = 3
 
 # If we ever end up in a tug-of-war with something else that re-applies a
 # layout, stop pulling: log it and stand down instead of burning the CPU and
@@ -94,6 +118,14 @@ INTERNAL = (displayctl.TOP, displayctl.BOTTOM)
 
 DUO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                     "..", "bin", "duo"))
+
+
+def remembering():
+    return os.environ.get("ZENDUO_REMEMBER_LAYOUT", "1") == "1"
+
+
+def dock_policy_on():
+    return os.environ.get("ZENDUO_DOCK_POLICY", "1") == "1"
 
 
 def log(msg):
@@ -117,6 +149,10 @@ class Watcher:
         self._announced_mirror = False
         self._announced_policy_off = False
         self._pending_undock = False  # an undock edge still owing the bottom panel
+        self._topology = None   # the set of connected monitors, as a config key
+        self._restore_pending = True   # check the remembered layout once per set
+        self._record_timer = 0
+        self._announced_memory_error = False
         self._children = []     # backgrounded sync-backlight runs, reaped by the poll
         self.loop = GLib.MainLoop()
 
@@ -162,6 +198,106 @@ class Watcher:
         except OSError as e:
             log(f"could not start sync-backlight: {e}")
 
+    def schedule_record(self):
+        """(Re)start the settle timer that records the layout on screen."""
+        if not remembering():
+            return
+        if self._record_timer:
+            GLib.source_remove(self._record_timer)
+        self._record_timer = GLib.timeout_add_seconds(RECORD_SETTLE_SECONDS,
+                                                      self.record_layout)
+
+    def record_layout(self):
+        """Remember the settled layout as this monitor set's layout."""
+        self._record_timer = 0
+        if not remembering() or self._pending_undock:
+            return GLib.SOURCE_REMOVE
+        if time.monotonic() < self._quiet_until:
+            return GLib.SOURCE_REMOVE  # storming: this is not the user's layout
+        override = dock.read_override()
+        if override is not None and bool(override.get("docked")) == self.docked:
+            # A manual nudge lapses at the next dock change, so it must not
+            # become the layout that comes back for good. `duo layout` is the
+            # verb that records, and it records at the moment it runs.
+            return GLib.SOURCE_REMOVE
+        try:
+            _serial, monitors_raw, logical_raw, _properties = displayctl.get_state(
+                self.proxy())
+        except displayctl.DisplayCtlError:
+            return GLib.SOURCE_REMOVE  # the next converge will come back to this
+        config = monitors_xml.snapshot(displayctl.parse_monitors(monitors_raw),
+                                       logical_raw)
+        if not config.logicals:
+            return GLib.SOURCE_REMOVE
+        try:
+            changed = monitors_xml.remember(config)
+        except (monitors_xml.FormatError, OSError) as e:
+            if not self._announced_memory_error:
+                self._announced_memory_error = True
+                log(f"not remembering layouts: {e}")
+            return GLib.SOURCE_REMOVE
+        self._announced_memory_error = False
+        if changed:
+            log(f"remembered for these monitors: {config.describe()}")
+            self.push_login_screen()
+        return GLib.SOURCE_REMOVE
+
+    def push_login_screen(self):
+        """Give the greeter the same layouts, so the password prompt follows.
+
+        Best effort and never blocking: it needs the root helper, and a
+        machine without it (or without GDM) must still get everything else.
+        stderr is inherited so an unexpected failure lands in the journal.
+        """
+        if os.environ.get("ZENDUO_LOGIN_SCREEN_LAYOUT", "1") != "1":
+            return
+        if monitors_xml.gdm_monitors_path() is None:
+            return
+        try:
+            # stdout and stderr are inherited, which under the unit is the
+            # journal: `duo layout login` says one line and only on failure.
+            self._children.append(subprocess.Popen(
+                [DUO, "layout", "login", "--quiet"], start_new_session=True))
+        except OSError as e:
+            log(f"could not update the login screen layout: {e}")
+
+    def restore_remembered(self, serial, monitors, logical_raw, properties):
+        """Put this monitor set's remembered layout back. True if it applied."""
+        try:
+            stored = monitors_xml.stored_for(self._topology)
+        except (monitors_xml.FormatError, OSError) as e:
+            if not self._announced_memory_error:
+                self._announced_memory_error = True
+                log(f"cannot read remembered layouts: {e}")
+            return False
+        if stored is None:
+            return False
+        # Apply the dock policy to the remembered layout BEFORE handing it
+        # over, so a remembered bottom panel is not lit under the keyboard for
+        # the fraction of a second it would take to correct it.
+        drop = ({displayctl.BOTTOM}
+                if self.docked and dock_policy_on() else set())
+        try:
+            logicals = displayctl.build_from_stored(stored, monitors, properties,
+                                                    drop=drop)
+        except displayctl.DisplayCtlError as e:
+            log(f"remembered layout does not fit this machine: {e}")
+            return False
+        live = monitors_xml.snapshot(monitors, logical_raw)
+        if displayctl.logicals_shape(logicals) == live.shape():
+            return False  # already exactly this; nothing to do
+        if self.storming():
+            return False
+        try:
+            displayctl.apply_config(self.proxy(), serial, logicals)
+        except displayctl.DisplayCtlError as e:
+            log(f"{e} — retrying in {RETRY_SECONDS}s")
+            self.schedule(RETRY_SECONDS * 1000)
+            return False
+        self._applies.append(time.monotonic())
+        log(f"restored the layout remembered for these monitors: {stored.describe()}")
+        return True
+
     def poll_keyboard(self):
         self._children = [c for c in self._children if c.poll() is None]
         raw = dock.keyboard_docked()
@@ -202,6 +338,9 @@ class Watcher:
         # exact thing this daemon exists to prevent. converge() distrusts only
         # a probe that CONTRADICTS what we knew before suspending.
         log("resumed — re-checking dock state and panel layout")
+        # Mutter re-reads monitors.xml on resume; if it fell back instead (a
+        # refused or stale stored config) the remembered layout is put back.
+        self._restore_pending = True
         self._raw, self._streak = None, 0
         self._resume_deadline = time.monotonic() + RESUME_SETTLE_SECONDS
         self.schedule(0)
@@ -232,7 +371,13 @@ class Watcher:
         return True
 
     def converge(self):
-        """Make the enabled panel set match the dock policy. Idempotent."""
+        """Reconcile the machine with what it should be showing. Idempotent.
+
+        Three things, in the order they have to happen: the layout remembered
+        for this set of monitors is put back if Mutter did not do it, the dock
+        policy decides the bottom panel, and whatever ends up on screen is
+        recorded as this monitor set's layout once it settles.
+        """
         if self.docked is None:
             return 0  # dock state not established yet; the poll will call back
         now = time.monotonic()
@@ -248,26 +393,6 @@ class Watcher:
             self.schedule(POLL_SECONDS * 1000)
             return 0
 
-        if os.environ.get("ZENDUO_DOCK_POLICY", "1") != "1":
-            # DOCK_POLICY=0 in zenduo.conf: keep running (so the unit stays
-            # healthy and the knob can be flipped back without a re-enable)
-            # but never touch the layout.
-            if not self._announced_policy_off:
-                self._announced_policy_off = True
-                log("dock policy is OFF (DOCK_POLICY=0 in zenduo.conf) — watching, not acting")
-            return 0
-        self._announced_policy_off = False
-
-        override = dock.read_override()
-        if override is not None and bool(override.get("docked")) == self.docked:
-            if self._announced_override != override:
-                self._announced_override = override
-                want = ", ".join(override.get("want", [])) or "?"
-                log(f"manual override active ({want}) — dock policy paused until the "
-                    f"keyboard is docked or undocked, or `duo apply-displays` runs")
-            return 0
-        self._announced_override = None
-
         try:
             p = self.proxy()
             serial, monitors_raw, logical_raw, properties = displayctl.get_state(p)
@@ -279,6 +404,53 @@ class Watcher:
 
         monitors = displayctl.parse_monitors(monitors_raw)
         enabled = displayctl.enabled_connectors(logical_raw)
+
+        # Which monitors are connected is the key to the layout memory, and a
+        # change of it is as much "the situation changed" as a dock or undock:
+        # it retires a manual override and asks for the remembered layout.
+        topology = monitors_xml.topology(monitors)
+        if topology != self._topology:
+            first = self._topology is None
+            self._topology, self._restore_pending = topology, True
+            if not first:
+                log("monitor set changed: " + " · ".join(
+                    monitors_xml.Spec(*spec).describe() for spec in topology))
+                if dock.clear_override():
+                    log("monitor set changed — manual display override cleared")
+
+        override = dock.read_override()
+        override_active = (override is not None
+                           and bool(override.get("docked")) == self.docked)
+
+        # The layout memory is its own feature: it keeps the machine coming
+        # back to the layout the user chose even with DOCK_POLICY=0, and it
+        # never fights a deliberate choice, because a change the user makes is
+        # what gets recorded a moment later.
+        if remembering() and self._restore_pending and not override_active:
+            self._restore_pending = False
+            if self.restore_remembered(serial, monitors, logical_raw, properties):
+                return 0  # MonitorsChanged brings us back for the dock rule
+        self.schedule_record()
+
+        if not dock_policy_on():
+            # DOCK_POLICY=0 in zenduo.conf: keep running (so the unit stays
+            # healthy and the knob can be flipped back without a re-enable)
+            # but never touch the bottom panel.
+            if not self._announced_policy_off:
+                self._announced_policy_off = True
+                log("dock policy is OFF (DOCK_POLICY=0 in zenduo.conf) — watching, not acting")
+            return 0
+        self._announced_policy_off = False
+
+        if override_active:
+            if self._announced_override != override:
+                self._announced_override = override
+                want = ", ".join(override.get("want", [])) or "?"
+                log(f"manual override active ({want}) — dock policy paused until the "
+                    f"keyboard is docked or undocked, a monitor is plugged in or "
+                    f"out, or `duo apply-displays` runs")
+            return 0
+        self._announced_override = None
 
         if self.is_mirrored(logical_raw):
             self._pending_undock = False  # hands off means the edge is spent
@@ -360,11 +532,18 @@ class Watcher:
         self._pending_undock = not self.docked
         if dock.clear_override():
             log("manual display override cleared")
-        return self.converge()
+        code = self.converge()
+        # Asking for the policy by hand also settles what should come back:
+        # record it now rather than leaving the file a layout behind (the
+        # settle timer belongs to the daemon's main loop, which --once has not).
+        if remembering():
+            self.record_layout()
+        return code
 
     def run(self):
         log(f"started (poll {POLL_SECONDS} Hz + MonitorsChanged + resume; "
-            f"debounce {DEBOUNCE_SAMPLES} samples)")
+            f"debounce {DEBOUNCE_SAMPLES} samples; layout memory "
+            f"{'on' if remembering() else 'off'})")
         # ZENDUO_MANAGED marks our own applies so displayctl does not mistake
         # them for a deliberate user choice and pause the policy on us.
         os.environ["ZENDUO_MANAGED"] = "1"

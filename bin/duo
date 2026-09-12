@@ -31,6 +31,8 @@ PYGI="${DUO_PYGI:-/usr/bin/python3}"
 export ZENDUO_APPLY_METHOD="${ZENDUO_APPLY_METHOD:-$(conf_get APPLY_METHOD)}"
 export ZENDUO_DOCK_POLICY="${ZENDUO_DOCK_POLICY:-$(conf_get DOCK_POLICY)}"
 export ZENDUO_KB_BACKLIGHT_RESTORE="${ZENDUO_KB_BACKLIGHT_RESTORE:-$(conf_get KB_BACKLIGHT_RESTORE)}"
+export ZENDUO_REMEMBER_LAYOUT="${ZENDUO_REMEMBER_LAYOUT:-$(conf_get REMEMBER_LAYOUT)}"
+export ZENDUO_LOGIN_SCREEN_LAYOUT="${ZENDUO_LOGIN_SCREEN_LAYOUT:-$(conf_get LOGIN_SCREEN_LAYOUT)}"
 
 KBD_VID=0b05
 KBD_PID=1b2c
@@ -70,6 +72,17 @@ usage: duo <command>
   top|bottom|both        enable that panel set (refuses all-off; pauses the
                          dock policy until the keyboard docks/undocks)
   toggle                 bottom panel on <-> off
+  layout [VERB]          the layout remembered for this set of monitors, the way
+                         Windows remembers one (Win+P). VERB is one of:
+                           show (default)  what is on screen, and what comes back
+                           laptop          this laptop's screens only
+                           external        external monitor(s) only
+                           extend          everything, side by side
+                           mirror          the same picture on every screen
+                           cycle           step through those four, like Win+P
+                           remember        record what is on screen right now
+                           forget          drop what is remembered for this set
+                           login           give the login screen these layouts
   watch-displays         daemon: bottom panel off while the keyboard is docked,
                          back on when it comes off. Nothing else is touched.
   apply-displays         enforce that policy once now (drops any manual override)
@@ -322,6 +335,23 @@ cmd_doctor() {
   for b in $(backlight_devices); do
     ck INFO 0 "backlight device: $b ($(backlight_pct "$b" || echo '?'))"
   done
+
+  # The layout memory: Mutter's own per-monitor-set database, which this
+  # project keeps up to date so a chosen layout survives a lid-open (and the
+  # lock screen comes up on the right monitor).
+  local mem_file mem
+  mem_file="${XDG_CONFIG_HOME:-$HOME/.config}/monitors.xml"
+  if [ "$ZENDUO_REMEMBER_LAYOUT" != 1 ]; then
+    ck INFO 0 "layout memory off (REMEMBER_LAYOUT=0) — GNOME's fallback layout decides every lid-open"
+  elif mem="$(python3 "$LIB/monitors_xml.py" --brief 2>/dev/null)"; then
+    if [ -e "$mem_file" ]; then
+      ck PASS 0 "layout memory: $mem ($mem_file)"
+    else
+      ck INFO 0 "layout memory on, nothing recorded yet — choose a layout once ('duo layout extend')"
+    fi
+  else
+    ck WARN 0 "$mem_file exists but this project cannot read it (not a version 2 monitors.xml?) — layouts are not being remembered"
+  fi
 
   echo
   echo "-- GNOME / Mutter --"
@@ -701,6 +731,40 @@ cmd_watch_input() {
   python3 "$LIB/watch_input.py"
 }
 
+cmd_layout() {
+  # `login` is the one verb that needs root (it writes the greeter's copy),
+  # so it goes through the helper rather than displayctl.
+  if [ "${1:-}" = login ]; then
+    shift
+    cmd_layout_login "$@"
+    return $?
+  fi
+  "$PYGI" "$LIB/displayctl.py" layout "$@"
+}
+
+cmd_layout_login() {
+  # One line, whatever happens: this runs from the daemon after every recorded
+  # layout change, so an expected failure (no helper yet, no GDM) must not
+  # spray the journal — and must still say what to do about it.
+  local args=() out rc=0
+  [ "${1:-}" = --quiet ] && args+=(--quiet)
+  if [ ! -x "$HELPER" ]; then
+    log "login screen layout not updated: the root helper is missing ($HELPER) — run: sudo ./install.sh --system"
+    return 1
+  fi
+  out="$(sudo -n "$HELPER" login-layout "${args[@]}" 2>&1)" && rc=0 || rc=$?
+  if [ "$rc" != 0 ]; then
+    case "$rc" in
+      64) log "login screen layout not updated: the installed root helper does not know 'login-layout' — run: sudo ./install.sh --system" ;;
+      66) log "login screen layout not updated: nothing to install yet, or this machine's login screen is not GDM's" ;;
+      *)  log "login screen layout not updated (rc=$rc): ${out%%$'\n'*}" ;;
+    esac
+    return 1
+  fi
+  [ -n "$out" ] && printf '%s\n' "$out"
+  return 0
+}
+
 cmd_status() {
   echo "panels:"
   local p
@@ -721,6 +785,11 @@ cmd_status() {
     echo "dock policy: PAUSED by a manual layout ($ov) — 'duo apply-displays' resumes it"
   else
     echo "dock policy: active (bottom panel off while docked, on when undocked)"
+  fi
+  if [ "$ZENDUO_REMEMBER_LAYOUT" = 1 ]; then
+    echo "layout memory: $(python3 "$LIB/monitors_xml.py" --brief 2>/dev/null || echo 'unreadable')"
+  else
+    echo "layout memory: OFF in $(conf_path) (REMEMBER_LAYOUT=0)"
   fi
   if [ -d "$NATIVE_LED" ]; then echo "kb-backlight: native LED available"; else echo "kb-backlight: HID fallback path"; fi
   echo "kb-backlight level: $(python3 "$LIB/kb_backlight.py" --show 2>/dev/null || echo '?') (restored on dock/undock/resume)"
@@ -883,6 +952,7 @@ case "$cmd" in
   disable)            cmd_disable "$@" ;;
   config)             cmd_config "$@" ;;
   top|bottom|both|toggle) "$PYGI" "$LIB/displayctl.py" "$cmd" "$@" ;;
+  layout)             cmd_layout "$@" ;;
   watch-displays)     exec "$PYGI" "$LIB/watch_displays.py" "$@" ;;
   apply-displays)     exec "$PYGI" "$LIB/watch_displays.py" --once "$@" ;;
   sync-backlight)     cmd_sync_backlight "$@" ;;

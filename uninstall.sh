@@ -62,6 +62,19 @@ system_half() {
   systemctl disable --now duo-cs35l41-check.service >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/duo-cs35l41-check.service /usr/local/sbin/duo-cs35l41-check
   systemctl daemon-reload
+  # The login screen's copy of the layout memory (duo layout login). Restore
+  # the greeter's own file if it had one; remove ours if it did not.
+  gdm_home="$(getent passwd gdm 2>/dev/null | cut -d: -f6 || true)"
+  if [ -n "$gdm_home" ]; then
+    if [ -e "$gdm_home/.config/monitors.xml.zenduo-backup" ]; then
+      mv -f "$gdm_home/.config/monitors.xml.zenduo-backup" "$gdm_home/.config/monitors.xml"
+      rm -f "$gdm_home/.config/monitors.xml.zenduo-installed"
+      log "restored the login screen's own monitors.xml"
+    elif [ -e "$gdm_home/.config/monitors.xml.zenduo-installed" ]; then
+      rm -f "$gdm_home/.config/monitors.xml" "$gdm_home/.config/monitors.xml.zenduo-installed"
+      log "removed the login screen layout this project installed"
+    fi
+  fi
   rm -f /etc/sudoers.d/zenduo /usr/local/sbin/zenduo-helper
   if [ -e /etc/udev/rules.d/70-zenduo.rules ]; then
     rm -f /etc/udev/rules.d/70-zenduo.rules

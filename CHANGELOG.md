@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### The display layout is remembered, the way Windows remembers it
+
+- the layout is recorded per set of connected monitors and restored by GNOME
+  itself before anything is drawn, so opening the lid comes back to the
+  screens, positions, scales and primary you last used with those monitors —
+  and the lock screen appears on the right one. It goes into GNOME's own
+  `~/.config/monitors.xml` (`lib/monitors_xml.py`), which Mutter wrote only
+  for Settings' "Keep changes" before this, so a Super+P layout was forgotten
+  as soon as the connectors were re-probed. Nothing is re-applied, so there is
+  no flicker and no "Keep display settings?" countdown
+- the login screen gets the same layouts, through a new validated root-helper
+  verb, so the password prompt is no longer stuck on the laptop panel. The
+  greeter's own file is kept as `monitors.xml.zenduo-backup` and restored by
+  `./uninstall.sh --system`
+- `duo layout [show|laptop|external|extend|mirror|cycle|remember|forget|login]`
+  — the four Win+P layouts in Windows' cycle order, and what is remembered
+- new knobs `REMEMBER_LAYOUT` and `LOGIN_SCREEN_LAYOUT`, home-manager options
+  `rememberLayout` and `loginScreenLayout`, both on by default
+- plugging a monitor in or out now retires a manual display override, like
+  docking does
+- `duo apply-displays` also refreshes what is remembered
+- `duo status` and `duo doctor` report the layout memory
+
 - `duo status`, `duo doctor` and `watch-fn` report a docked keyboard whose USB
   link enumerated but failed to configure (`can't set config #1, error -71`;
   seen 2026-09-05) and say to re-seat it; `watch-fn` no longer goes silent

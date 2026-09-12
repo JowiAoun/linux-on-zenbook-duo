@@ -9,7 +9,10 @@ What the machine does under Windows, whether it does it here, and how.
 | Windows | Here | Status |
 |---|---|---|
 | Bottom screen off when the keyboard is docked, on when lifted | `duo watch-displays` — converges the layout on keyboard poll, Mutter `MonitorsChanged` and logind resume | ✅ |
-| Win+P: laptop only, external only, duplicate, extend | Left to GNOME Settings / Win+P; the daemon governs the bottom panel only, so these survive | ✅ |
+| Win+P: laptop only, external only, duplicate, extend | GNOME's own Super+P, or `duo layout laptop\|external\|mirror\|extend\|cycle`; the daemon governs the bottom panel only, so either survives | ✅ |
+| The layout comes back per monitor set: same screens, positions, scales and primary as last time those monitors were connected | Recorded into GNOME's own `~/.config/monitors.xml` by `duo watch-displays`, restored by Mutter before anything is drawn (`REMEMBER_LAYOUT=1`) | 🧪 2026-09-12 |
+| The lock screen appears on the monitor you were using | Same memory: Mutter restores the layout before the shield is drawn | 🧪 2026-09-12 |
+| The sign-in screen appears there too | `duo layout login` (automatic after a change) installs the same layouts for GDM, via the root helper | 🧪 2026-09-12 |
 | Second-screen key toggles the bottom panel | `5a 6a` → `duo toggle`; ignored while docked (the panel is under the keyboard) | ✅ |
 | Brightness keys drive both panels | GNOME's own StepUp/StepDown (with OSD) then the bottom panel is synced | ✅ |
 | Auto-rotate: tent, book, portrait | `duo watch-rotation` logs orientation | 🧪 → phase O |

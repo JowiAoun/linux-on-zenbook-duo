@@ -27,6 +27,8 @@ let
     "ZENDUO_APPLY_METHOD=${cfg.applyMethod}"
     "ZENDUO_DOCK_POLICY=${bool01 cfg.dockPolicy}"
     "ZENDUO_KB_BACKLIGHT_RESTORE=${bool01 cfg.kbBacklightRestore}"
+    "ZENDUO_REMEMBER_LAYOUT=${bool01 cfg.rememberLayout}"
+    "ZENDUO_LOGIN_SCREEN_LAYOUT=${bool01 cfg.loginScreenLayout}"
   ];
 
   watcher = sub: description: {
@@ -56,6 +58,8 @@ let
     BACKLIGHT_TARGET=${cfg.backlightTarget}
     KB_BACKLIGHT_RESTORE=${bool01 cfg.kbBacklightRestore}
     DOCK_POLICY=${bool01 cfg.dockPolicy}
+    REMEMBER_LAYOUT=${bool01 cfg.rememberLayout}
+    LOGIN_SCREEN_LAYOUT=${bool01 cfg.loginScreenLayout}
   '';
 in
 {
@@ -143,6 +147,42 @@ in
         user-initiated change and pops its "Keep display settings?" countdown
         every single time, so a daemon that applies on every dock, undock and
         resume buries you in confirmation dialogs.
+      '';
+    };
+
+    rememberLayout = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Remember the display layout per set of connected monitors, the way
+        Windows does, and let GNOME restore it: whatever is on screen when
+        things settle is recorded into GNOME's own database
+        (~/.config/monitors.xml), which Mutter reads back at session start, on
+        monitor hotplug, on lid open and after resume — before anything is
+        drawn, so the lock screen comes up on the monitor you were using.
+
+        Mutter only ever wrote that file for GNOME Settings' "Keep changes",
+        so a layout picked with Super+P was forgotten as soon as the
+        connectors were re-probed, and every lid-open landed on the fallback:
+        every screen on, laptop panel primary. Recording needs no apply, so
+        there is no flicker and no "Keep display settings?" countdown.
+
+        `duo layout` shows and sets it; `duo layout forget` drops the entry
+        for the monitors currently connected.
+      '';
+    };
+
+    loginScreenLayout = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Give the login screen (GDM, which runs its own session with its own
+        Mutter) the same remembered layouts, so the password prompt appears on
+        the monitor you were last using instead of the laptop panel. Needs the
+        root helper from `sudo ./install.sh --system`; the greeter's own file
+        is kept as monitors.xml.zenduo-backup the first time, and uninstall
+        puts it back. On a shared machine the last person to change layouts
+        decides what the login screen uses.
       '';
     };
 

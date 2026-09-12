@@ -109,6 +109,8 @@ Knobs live in `~/.config/zenduo/zenduo.conf` ([annotated example](config/zenduo.
 | `BACKLIGHT_SOURCE` / `BACKLIGHT_TARGET` | `intel_backlight` / auto | Which backlight brightness is copied from and to |
 | `KB_BACKLIGHT_RESTORE` | `1` | Restore the keyboard backlight level after the keyboard re-enumerates |
 | `DOCK_POLICY` | `1` | `0` keeps `watch-displays` running but makes it watch without acting |
+| `REMEMBER_LAYOUT` | `1` | Remember the display layout per set of connected monitors and let GNOME restore it (see below) |
+| `LOGIN_SCREEN_LAYOUT` | `1` | Give the GDM greeter the same layouts, so the password prompt is on the monitor you were using |
 
 System-level features are flags on the installer, so they can be switched
 later with the same command that installed them:
@@ -128,6 +130,42 @@ documented, but taste is yours:
 duo speaker-dsp status
 ```
 
+## The layout comes back, like it does on Windows
+
+Windows keeps a display configuration for each *set* of connected monitors and
+restores it when that set comes back. GNOME has the same database and restores
+it just as early — but it only ever wrote it when you went through Settings and
+clicked "Keep changes". A layout chosen with Super+P was forgotten the moment
+the connectors were re-probed, so opening the lid on an external-monitor setup
+came back to GNOME's fallback (every screen on, laptop panel primary) and the
+password prompt appeared on the laptop screen.
+
+So `duo watch-displays` records it. Whatever is on screen when things settle
+becomes the layout for the monitors that are connected, written into GNOME's
+own `~/.config/monitors.xml` — no re-apply, so no flicker and no "Keep display
+settings?" countdown, and GNOME restores it before anything is drawn. Plug the
+monitor back in tomorrow and you get the same screens, positions, scales and
+primary. Unplug it and you get the layout you use without it.
+
+```bash
+duo layout                  # what is on screen, what comes back, the login screen
+duo layout external         # the four Win+P layouts, remembered as you pick them
+duo layout cycle            # step through them, Windows' order
+duo layout forget           # stop remembering this particular monitor set
+```
+
+The greeter runs its own session with its own copy of that file, which is why
+the sign-in prompt used to sit on the laptop panel regardless. After a layout
+changes, the same layouts are installed for it (`LOGIN_SCREEN_LAYOUT=1`, via
+the root helper — the greeter's own file is kept as
+`monitors.xml.zenduo-backup` and `./uninstall.sh --system` puts it back).
+
+Two things are deliberately not remembered: a layout you nudged with
+`duo top/bottom/both/toggle` or the second-screen key, because those lapse at
+the next dock change by design, and anything applied while the daemon is
+backing off from a layout fight. `REMEMBER_LAYOUT=0` turns the whole thing off
+and leaves `monitors.xml` alone.
+
 ## Commands
 
 ```
@@ -139,6 +177,11 @@ duo config [get K|set K V] the knobs in ~/.config/zenduo/zenduo.conf
 duo top|bottom|both        enable that panel set (refuses to disable everything);
                            pauses the dock policy until the keyboard docks/undocks
 duo toggle                 bottom panel on <-> off, leaving every other output alone
+duo layout [show]          what is on screen, what comes back, and where the login screen is
+duo layout laptop|external|extend|mirror     the four Win+P layouts, remembered
+duo layout cycle           step through those four in Windows' order
+duo layout remember|forget record what is on screen / drop it for these monitors
+duo layout login           give the login screen the same layouts (needs the root helper)
 duo watch-displays         daemon: bottom panel off while docked, back on when lifted
 duo apply-displays         enforce that policy once, now (drops any manual override)
 duo sync-backlight         copy the top panel's backlight percentage to the bottom panel
@@ -195,6 +238,13 @@ dotfiles ([JowiAoun/dome](https://github.com/JowiAoun/dome)) consume it.
 
 ## Troubleshooting
 
+- **The wrong layout comes back after opening the lid, or the password prompt
+  is on the wrong screen.** `duo layout` says what is remembered for the
+  monitors you have connected. If it says nothing is, choose the layout you
+  want once (`duo layout external`, GNOME Settings, or Super+P) and it is
+  recorded. If the sign-in screen is still wrong, `duo layout login` installs
+  the layouts for the greeter and reports why if it cannot — that needs
+  `sudo ./install.sh --system` once, for the root helper.
 - **Bottom screen stays lit under the docked keyboard.** `duo status` says
   whether the dock policy is paused by a manual layout (`duo apply-displays`
   resumes it) and whether `duo-watch-displays` is running (`duo features`).

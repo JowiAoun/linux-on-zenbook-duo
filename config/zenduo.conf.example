@@ -36,3 +36,24 @@ KB_BACKLIGHT_RESTORE=1
 # back on when it comes off). 0 makes duo-watch-displays a no-op while still
 # running, which is handy for a day of experiments without disabling the unit.
 DOCK_POLICY=1
+
+# Remember the display layout per set of connected monitors, the way Windows
+# does: whatever is on screen when things settle is recorded as the layout for
+# those monitors, and comes back on the next lid-open, hotplug or boot —
+# including the lock screen, which is why the password prompt then appears on
+# the monitor you were actually using.
+#
+# It is recorded into GNOME's own database (~/.config/monitors.xml), so Mutter
+# restores it itself before anything is drawn. Nothing is re-applied and no
+# "Keep display settings?" dialog appears. `duo layout` shows what is
+# remembered; `duo layout forget` drops it for the current set. 0 leaves that
+# file alone, and GNOME's fallback (every screen on, laptop primary) decides
+# every lid-open again.
+REMEMBER_LAYOUT=1
+
+# Also give the login screen those layouts, so the greeter's password prompt
+# comes up on the same monitor. Needs the root helper (sudo ./install.sh
+# --system); the greeter's own file is kept as monitors.xml.zenduo-backup the
+# first time. On a shared machine the last person to change layouts sets what
+# the login screen uses.
+LOGIN_SCREEN_LAYOUT=1

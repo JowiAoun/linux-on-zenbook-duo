@@ -227,8 +227,17 @@ EE 8, with `duo speaker-dsp status` agreeing.
 The things people miss from Windows that are not hardware: an on-screen
 keyboard on the bottom panel when the keyboard is detached (GNOME's OSK
 appears already — make it land on the bottom panel), a launcher/dock on the
-bottom panel, "throw this window to the other panel" shortcuts, a `duo layout`
-cycle bound to the display-switch key (both / top / bottom / external only).
+bottom panel, "throw this window to the other panel" shortcuts.
+
+- [x] `duo layout laptop|external|extend|mirror|cycle` (2026-09-12), the four
+      Win+P layouts with Windows' cycle order
+- [x] the layout is remembered per set of connected monitors and restored by
+      GNOME itself, including on the lock screen (`lib/monitors_xml.py`), and
+      pushed to the GDM greeter (`duo layout login`)
+- [ ] bind `cycle` to the display-switch key once its vendor code is
+      attributed (`5a 3d` / `5a 9c` are captured but unidentified — phase Q)
+- [ ] verify the memory on hardware: lid-open, hotplug, reboot, cold boot
+
 *Gate:* each one demonstrably works without touching a mouse.
 
 ### V. Packaging

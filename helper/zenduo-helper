@@ -6,12 +6,25 @@
 # Verbs (input strictly validated, nothing else accepted):
 #   backlight <device> <0-100>   write a percentage to /sys/class/backlight/<device>
 #   batlimit <20-100>            set BAT* charge_control_end_threshold
+#   login-layout [--quiet]       copy the caller's ~/.config/monitors.xml to the
+#                                login screen's own copy, so the greeter comes up
+#                                on the monitor they last used
 set -euo pipefail
 
 usage() {
   echo "usage: zenduo-helper backlight <device> <0-100> | batlimit <20-100>" >&2
+  echo "       zenduo-helper login-layout [--quiet]" >&2
   exit 64
 }
+
+# Every element name mutter's monitors.xml parser knows
+# (src/backends/meta-monitor-config-store.c, read 2026-09-12). A file is only
+# installed if it uses nothing else: the greeter's Mutter parses it as root's
+# own display config, so "it came from the user" is not on its own enough.
+XML_TAGS="monitors configuration logicalmonitor x y scale primary presentation
+transform rotation flipped monitor monitorspec connector vendor product serial
+mode width height rate ratemode flag underscanning maxbpc rgbrange disabled
+policy stores store dbus migrated"
 
 case "${1:-}" in
   backlight)
@@ -47,6 +60,77 @@ case "${1:-}" in
       found=1
     done
     [ "$found" = 1 ] || { echo "zenduo-helper: no charge_control_end_threshold node (asus-wmi missing?)" >&2; exit 66; }
+    ;;
+  login-layout)
+    quiet=0
+    [ "${2:-}" = "--quiet" ] && quiet=1
+    say() { [ "$quiet" = 1 ] || echo "zenduo-helper: $*"; }
+
+    # The caller is identified by sudo, never by an argument: an argument
+    # would let one user publish another user's file to the greeter.
+    uid="${SUDO_UID:-}"
+    [[ "$uid" =~ ^[0-9]+$ ]] || { echo "zenduo-helper: login-layout must be run through sudo" >&2; exit 64; }
+    # `|| true` inside the substitution: getent exits 2 for an unknown key and
+    # pipefail would take the whole script down before the check below runs.
+    src_home="$(getent passwd "$uid" 2>/dev/null | cut -d: -f6 || true)"
+    [ -n "$src_home" ] || { echo "zenduo-helper: uid $uid has no home directory" >&2; exit 66; }
+    src="$src_home/.config/monitors.xml"
+    [ -f "$src" ] || { echo "zenduo-helper: $src does not exist yet (nothing remembered)" >&2; exit 66; }
+
+    # Validation, in the order that a bad file could do harm: the right owner,
+    # a sane size, no doctype/processing instruction/comment, and no element
+    # mutter does not know. A file that fails any of these is not installed;
+    # the greeter then keeps whatever it had.
+    owner="$(stat -c %u "$src")"
+    [ "$owner" = "$uid" ] || { echo "zenduo-helper: $src is not owned by uid $uid" >&2; exit 77; }
+    size="$(stat -c %s "$src")"
+    [ "$size" -gt 0 ] && [ "$size" -le 65536 ] \
+      || { echo "zenduo-helper: $src is ${size} bytes — refusing (expected 1-65536)" >&2; exit 65; }
+    head_line="$(head -c 64 "$src" | head -n1)"
+    case "$head_line" in
+      '<monitors version="2">'*) ;;
+      *) echo "zenduo-helper: $src does not start with <monitors version=\"2\"> — refusing" >&2; exit 65 ;;
+    esac
+    # Captured, then matched: a pipe into grep -q under pipefail returns 141
+    # on a file big enough to fill the pipe (docs/DESIGN.md).
+    specials="$(grep -c -e '<!' -e '<?' "$src" || true)"
+    [ "$specials" = 0 ] \
+      || { echo "zenduo-helper: $src contains a doctype, comment or processing instruction — refusing" >&2; exit 65; }
+    tags="$(grep -oE '</?[a-zA-Z]+' "$src" | tr -d '</' | sort -u)"
+    for tag in $tags; do
+      found=0
+      for known in $XML_TAGS; do
+        [ "$tag" = "$known" ] && { found=1; break; }
+      done
+      [ "$found" = 1 ] || { echo "zenduo-helper: $src has an unknown element <$tag> — refusing" >&2; exit 65; }
+    done
+
+    gdm_home="$(getent passwd gdm 2>/dev/null | cut -d: -f6 || true)"
+    [ -n "$gdm_home" ] || { echo "zenduo-helper: no gdm account — the login screen is not GDM's to set" >&2; exit 66; }
+    dst_dir="$gdm_home/.config"
+    dst="$dst_dir/monitors.xml"
+    install -d -o gdm -g gdm -m 0755 "$dst_dir"
+    # Back up the greeter's own file once, and leave a marker when there was
+    # none, so uninstall.sh can tell "restore theirs" from "remove ours".
+    if [ ! -e "$dst.zenduo-backup" ] && [ ! -e "$dst.zenduo-installed" ]; then
+      if [ -e "$dst" ]; then
+        cp -a "$dst" "$dst.zenduo-backup"
+        say "kept the login screen's own layout as $dst.zenduo-backup"
+      else
+        : > "$dst.zenduo-installed"
+        chown gdm:gdm "$dst.zenduo-installed"
+      fi
+    fi
+    if cmp -s "$src" "$dst" 2>/dev/null; then
+      say "login screen layout already up to date"
+      exit 0
+    fi
+    tmp="$(mktemp "$dst_dir/.monitors.xml.XXXXXX")"
+    cat "$src" > "$tmp"
+    chown gdm:gdm "$tmp"
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$dst"
+    say "login screen will use the remembered layouts ($dst)"
     ;;
   *)
     usage

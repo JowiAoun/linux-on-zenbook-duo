@@ -162,6 +162,22 @@ conf_set APPLY_METHOD temporary
 is "conf_set creates the file from defaults" "$(grep -c '^APPLY_METHOD=temporary' "$ZENDUO_CONF")" "1"
 rm -rf "$(dirname "$ZENDUO_CONF")"
 
+# ── the root helper's argument handling ──────────────────────────────────────
+# The helper is the only code that runs as root, so every verb has to refuse
+# before it writes. The content validation of login-layout (element whitelist,
+# size, ownership) needs a root write target and is exercised by installing;
+# what is testable here is that no argument shape reaches the write at all.
+group "zenduo-helper arguments"
+helper_rc() { ( unset SUDO_UID; "$@" ) >/dev/null 2>&1; echo $?; }
+is "no verb is a usage error (64)"              "$(helper_rc ./helper/zenduo-helper)" 64
+is "an unknown verb is a usage error"           "$(helper_rc ./helper/zenduo-helper bogus)" 64
+is "backlight with no device is a usage error"  "$(helper_rc ./helper/zenduo-helper backlight)" 64
+is "batlimit out of range is a usage error"     "$(helper_rc ./helper/zenduo-helper batlimit 5)" 64
+is "login-layout outside sudo is refused"       "$(helper_rc ./helper/zenduo-helper login-layout)" 64
+is "login-layout rejects a non-numeric uid"     "$(SUDO_UID=nobody ./helper/zenduo-helper login-layout >/dev/null 2>&1; echo $?)" 64
+# 4294967295 is (uid_t)-1: getent never resolves it, on any machine.
+is "login-layout needs a uid with a home"       "$(SUDO_UID=4294967295 ./helper/zenduo-helper login-layout >/dev/null 2>&1; echo $?)" 66
+
 # ── nix_managed ──────────────────────────────────────────────────────────────
 group "nix_managed"
 nm_dir="$(mktemp -d)"

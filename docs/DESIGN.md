@@ -27,9 +27,13 @@ home-manager module generates the same units declaratively and marks them
 1. **Fail-safe.** `displayctl` refuses any configuration with zero enabled
    panels; display changes use Mutter's *temporary* apply so a broken layout
    never survives a session restart. There is a second reason for temporary,
-   verified on hardware 2026-07-23: a persistent `ApplyMonitorsConfig` makes
-   gnome-shell raise "Keep display settings?" every time, which a daemon that
-   applies on every dock, undock and resume cannot live with.
+   verified on hardware 2026-07-23 and confirmed in mutter's source
+   2026-09-12: only a persistent `ApplyMonitorsConfig` calls
+   `request_persistent_confirmation`, which raises gnome-shell's "Keep display
+   settings?" countdown *and reverts the layout after 20 s* unless somebody
+   clicks. A daemon that applies on every dock, undock and resume cannot live
+   with either half. Persistence is achieved by writing what is already on
+   screen into Mutter's own database instead — see rule 11.
 2. **Native first.** Every capability probes the kernel interface before using
    a userspace fallback (`/sys/class/leds/asus::kbd_backlight` before the HID
    report), so newer kernels automatically shrink this project.
@@ -43,11 +47,12 @@ home-manager module generates the same units declaratively and marks them
    because resume makes Mutter re-read `monitors.xml` while the keyboard
    never moves. A deliberate `duo top/bottom/both/toggle` outranks the policy
    until the next dock or undock.
-6. **Govern one panel, not the layout.** The daemon decides exactly one thing:
-   whether the bottom panel is on. Top panel, externals, their positions,
-   scales and primary stay the user's. The bottom-off rule is continuous; the
-   bottom-on rule fires once, at the undock edge. Mirrored layouts are left
-   alone.
+6. **Govern one panel, decide nothing else.** The daemon *decides* exactly one
+   thing: whether the bottom panel is on. Top panel, externals, their
+   positions, scales and primary stay the user's. The bottom-off rule is
+   continuous; the bottom-on rule fires once, at the undock edge. Mirrored
+   layouts are left alone. It may *replay* a whole layout (rule 11), but only
+   one the user themselves last had — it never invents one.
 7. **The bottom panel follows the top one.** Undocking brings it back only
    when the laptop's own display is in use; on external-only it stays dark.
 8. **Prove it, don't assume it.** A hidraw write that returns success proves
@@ -61,6 +66,20 @@ home-manager module generates the same units declaratively and marks them
     (`duo log`); a key that silently did nothing is indistinguishable from a
     key that never arrived, so spawned commands' stderr is captured and
     reported.
+
+11. **Remember the layout, do not re-assert it.** Mutter already keeps a
+    display configuration per set of connected monitors, in
+    `~/.config/monitors.xml`, and restores it at session start, on hotplug, on
+    lid open and after resume — before anything is drawn, which is the only
+    moment early enough for the lock screen to come up on the right monitor.
+    It only ever *wrote* that file for GNOME Settings' "Keep changes", so a
+    layout chosen with Super+P was forgotten. `lib/monitors_xml.py` records
+    the layout that is already on screen into that file, so GNOME does the
+    restoring: no apply, no flicker, no confirmation countdown, and nothing
+    unusable can be persisted because Mutter validated it before running it.
+    The daemon restores only as a backstop, and only when the monitor set
+    changes or after resume — never while the user is changing things. What is
+    explicitly temporary (a manual override) is never recorded.
 
 ## Traps that already bit, do not repeat
 
@@ -77,7 +96,14 @@ home-manager module generates the same units declaratively and marks them
 - home-manager writes a bare Nix integer to dconf as int32; a `u` key then
   silently falls back to the schema default. Wrap with `mkUint32`.
 - `sudo VAR=1 ./script` loses `VAR` to `env_reset`. Flags, not variables, for
-  anything that must reach a root script.
+  anything that must reach a root script. Same shape, different program:
+  `install.sh` re-ran itself under `runuser` and exported the flags, which the
+  child's own parser then reset — `sudo ./install.sh --dry-run` ran the user
+  half for real until 2026-09-05.
+- A `--dry-run` that is parsed in one place and consumed in another is a dry
+  run in name only: `displayctl.run` stripped the flag before the `layout`
+  verbs could see it, so `duo layout laptop --dry-run` applied the layout
+  (2026-09-12). Tested now by dispatching the flag, not by trusting it.
 
 ## Graduation protocol
 
