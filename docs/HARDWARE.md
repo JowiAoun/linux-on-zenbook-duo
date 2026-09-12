@@ -1,7 +1,7 @@
 # Hardware facts
 
 Everything the code relies on, with how it was established. "Measured" means
-on the author's UX8406MA (Core Ultra 7 155H, 16 GB, 2880×1800 120 Hz panels,
+on the author's UX8406MA (Core Ultra 7 155H, 16 GB, 1920×1200 60 Hz panels,
 BIOS 312), Ubuntu 24.04.4, kernels 6.17 → 7.0. Tags like **V8** are the claim
 numbers from the original master plan
 ([research/2026-07-21-zenduo-master-plan-v1.1.md](research/2026-07-21-zenduo-master-plan-v1.1.md) §2),
@@ -12,7 +12,7 @@ kept so code comments and the research stay cross-referenced.
 | Thing | Value |
 |---|---|
 | Model | ASUS Zenbook Duo (2024) UX8406MA (Meteor Lake; Core Ultra 7 155H / 9 185H). DMI `product_name` contains `UX8406MA` |
-| Panels | 2× 14" OLED touch, `eDP-1` (top) / `eDP-2` (bottom); FHD@60 or 3K@120 |
+| Panels | 2× 14" OLED touch, `eDP-1` (top) / `eDP-2` (bottom); FHD+@60 or 3K@120. The author's unit is the FHD+ one: EDID read 2026-09-12 gives SDC 0x41a0, one detailed timing, 1920×1200 at 154.3 MHz = 60.00 Hz, and `/sys/class/drm/card1-eDP-*/modes` lists nothing larger |
 | iGPU | Intel Arc (Xe-LPG), PCI `8086:7d55`, driver i915 |
 | Keyboard, USB (pogo pins) | `0b05:1b2c` "ASUS Zenbook Duo Keyboard", six HID interfaces, hid-generic + hid-multitouch |
 | Keyboard, Bluetooth | `0b05:1b2d` — same keyboard, different product id per transport |
