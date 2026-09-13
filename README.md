@@ -263,6 +263,18 @@ dotfiles ([JowiAoun/dome](https://github.com/JowiAoun/dome)) consume it.
   down fully (not a reboot). To stop it recurring, disable Fast Startup in
   Windows: `powercfg /h off` as Administrator. Details:
   [docs/HARDWARE.md](docs/HARDWARE.md#speakers).
+- **Speakers go silent mid-session but earbuds still work.** The speaker PCM
+  is stuck in an XRUN loop it cannot leave; `journalctl --user -u pipewire`
+  shows `snd_pcm_avail after recover: Broken pipe` repeating. Restart the
+  audio server — no root needed:
+
+      systemctl --user restart wireplumber pipewire pipewire-pulse
+
+  Wine and FMOD apps need restarting afterwards to get their streams back.
+  What triggers it is a stall long enough to underrun a 682 ms buffer, which
+  in practice means the machine is swapping: check `free -h` and
+  `cat /proc/pressure/io` before blaming the driver. Details:
+  [docs/HARDWARE.md](docs/HARDWARE.md#speakers).
 - **Wi-Fi drops when the keyboard is detached.** Kernel < 6.11. `duo doctor`
   warns about it.
 - **Pairing the keyboard over Bluetooth.** Detach it, slide the switch on its

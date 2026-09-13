@@ -136,6 +136,50 @@ probes. Recovery is a full power-off. Prevention is on the Windows side:
 `powercfg /h off` as Administrator, then use Shut down rather than Restart
 between systems. `duo-cs35l41-check` watches the kernel log and tells you.
 
+**The silent-speakers wedge.** The speaker PCM can stop for good mid-session:
+speakers go quiet, Bluetooth earbuds still work (a separate device, own
+pipeline), and PipeWire logs `snd_pcm_avail after recover: Broken pipe` about
+nineteen times a second until something re-opens the device. Measured
+2026-09-13 on a wedged device, from `/proc/asound/card0/pcm0p/sub0/status` with
+`period_size 1024, buffer_size 32768`:
+
+    state: RUNNING   hw_ptr: 192   appl_ptr: 128   avail: 32832
+
+`appl_ptr` is 64 frames *behind* `hw_ptr`, so `avail` (32832) exceeds
+`buffer_size` (32768) — which is exactly how ALSA reports XRUN. PipeWire calls
+`snd_pcm_recover`, the SOF pipeline comes back with the same stale DMA
+position, and it xruns again immediately: a loop it never escapes. Sampling
+the same file after a server restart shows `hw_ptr` advancing at 48000 frames/s
+with `appl_ptr` correctly ahead, so nothing is broken in hardware.
+
+What starts it is an underrun — the buffer is 682 ms, so it takes a stall of
+that order, which this 16 GB machine reaches easily once it is swapping (see
+below). What makes it a *fault* rather than a hiccup is that PipeWire 1.0.5
+cannot reset the SOF pipeline from its recovery path. WirePlumber's idle
+suspend does re-open the device cleanly, which is why the loop ends on its own
+once every stream stops — and why it lasts for hours when something (a game, a
+chat app) is always playing. Measured 2026-09-13: sixteen episodes across three
+days of uptime.
+
+Recovery is a user-level restart, no root and no module reload:
+
+    systemctl --user restart wireplumber pipewire pipewire-pulse
+
+That costs the clients their streams — PipeWire-native apps reconnect, Wine and
+FMOD ones stay silent until restarted — so it is a repair, not something to
+schedule. Do **not** reach for the CS35L41 driver here: the re-bind hazard
+above still applies, and the amps are not what failed.
+
+**Memory pressure is an audio bug on this machine.** PipeWire's `pw-data-loop`
+runs at RT priority 20 but nothing is locked (`VmLck: 0 kB`), so it takes major
+page faults like any other thread. Measured 2026-09-13 during an episode: 19
+MiB/s swapped in, 29 MiB/s out, ~5000 major faults/s, with 440 GiB written to
+swap over 57 hours of uptime and zram full (13.6 G of data in 3.9 G of RAM,
+overflowing to the disk swapfile). An RT thread that faults blocks on the swap
+queue, and a few hundred milliseconds of that underruns even a 682 ms buffer.
+The same stalls are what make browser video buffer forever, so a report of
+"speakers died and videos won't play" is one symptom, not two.
+
 ## Dual boot
 
 The factory disk has **five** partitions, not four: `p1` ESP (~273 MB, flags
