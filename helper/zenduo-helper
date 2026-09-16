@@ -84,7 +84,7 @@ case "${1:-}" in
     owner="$(stat -c %u "$src")"
     [ "$owner" = "$uid" ] || { echo "zenduo-helper: $src is not owned by uid $uid" >&2; exit 77; }
     size="$(stat -c %s "$src")"
-    [ "$size" -gt 0 ] && [ "$size" -le 65536 ] \
+    [[ "$size" -gt 0 && "$size" -le 65536 ]] \
       || { echo "zenduo-helper: $src is ${size} bytes — refusing (expected 1-65536)" >&2; exit 65; }
     head_line="$(head -c 64 "$src" | head -n1)"
     case "$head_line" in

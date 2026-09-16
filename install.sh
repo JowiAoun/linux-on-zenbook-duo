@@ -128,7 +128,7 @@ user_phase() {
   if [ "$hm" = 1 ]; then
     log "home-manager manages the user half here ($conf and/or $units_dst/duo-*.service are Nix store symlinks)"
     log "nothing to do: set zenduo.batteryLimit / watchFn / speakerDsp ... in your home-manager config and switch"
-    [ -z "$BATTERY_LIMIT$APPLY_METHOD" ] && [ "$SPEAKER_DSP" = 0 ] \
+    [[ -z "$BATTERY_LIMIT$APPLY_METHOD" && "$SPEAKER_DSP" = 0 ]] \
       || warn "ignoring --battery-limit / --apply-method / --speaker-dsp: they belong in the home-manager options"
     echo
     "$duo" status || true
