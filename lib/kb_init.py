@@ -16,7 +16,8 @@ can call `duo kb-init`.
 
 Transport: hidraw HIDIOCSFEATURE — never detaches the kernel driver, so typing
 keeps working. Needs the udev uaccess rule (system/45-udev.sh) or root.
-Exit: 0 accepted - 1 no device / all writes failed - 13 permission denied.
+Exit: 0 accepted - 1 no device / all writes failed - 2 the nodes vanished while
+sending (the keyboard is re-enumerating) - 13 permission denied.
 """
 
 import fcntl
@@ -160,10 +161,13 @@ def keyboard_hidraw_nodes():
             yield "/dev/" + uevent.split("/")[4]
 
 
-def send_handshake(hint=True):
+def send_handshake(hint=True, verbose=True):
+    """verbose=False keeps the failure lines to the caller: watch-fn retries
+    and says so itself, scaled to how long it has been failing."""
     nodes = list(keyboard_hidraw_nodes())
     if not nodes:
-        print("kb_init: keyboard 0b05:1b2c not found on hidraw (docked?)", file=sys.stderr)
+        if verbose:
+            print("kb_init: keyboard 0b05:1b2c not found on hidraw (docked?)", file=sys.stderr)
         return 1
 
     # Send the handshake to EVERY interface, not just the first that accepts it.
@@ -171,12 +175,19 @@ def send_handshake(hint=True):
     # (on this keyboard that is a later hidraw node, not the main keyboard one),
     # so we must not stop early or the media layer never switches on.
     denied = False
+    missing = 0
     confirmed = []
     for node in nodes:
         try:
             fd = os.open(node, os.O_RDWR)
         except PermissionError:
             denied = True
+            continue
+        except FileNotFoundError:
+            # Listed in sysfs a moment ago, gone from /dev now: the keyboard
+            # is re-enumerating under us (seen 2026-09-16, five times in an
+            # evening, each resolved within 2 s).
+            missing += 1
             continue
         except OSError:
             continue
@@ -227,14 +238,21 @@ def send_handshake(hint=True):
                   "Press Fn+F5 etc. and watch `duo fn-probe` / `duo watch-input`.")
         return 0
     if denied:
-        print("kb_init: permission denied on hidraw — run with sudo, or install the "
-              "udev rule (sudo ./install.sh --system).", file=sys.stderr)
+        if verbose:
+            print("kb_init: permission denied on hidraw — run with sudo, or install the "
+                  "udev rule (sudo ./install.sh --system).", file=sys.stderr)
         return 13
+    if missing and missing == len(nodes):
+        if verbose:
+            print("kb_init: the keyboard's hidraw nodes vanished while sending "
+                  "(re-enumerating?) — try again in a moment.", file=sys.stderr)
+        return 2
     # Deliberately a failure even though other interfaces may have swallowed the
     # bytes happily: "some interface accepted something" is what let the media
     # layer stay dead while every log line claimed success.
-    print("kb_init: no interface confirmed hotkey mode — the media keys will not work. "
-          "Re-run attached over USB, or share `duo doctor` output.", file=sys.stderr)
+    if verbose:
+        print("kb_init: no interface confirmed hotkey mode — the media keys will not work. "
+              "Re-run attached over USB, or share `duo doctor` output.", file=sys.stderr)
     return 1
 
 

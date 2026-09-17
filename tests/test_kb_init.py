@@ -18,6 +18,24 @@ class Ioctls(unittest.TestCase):
         self.assertEqual(kb_backlight.hidiocsfeature(17), kb_init.hidiocsfeature(17))
 
 
+class VanishingNodes(unittest.TestCase):
+    def test_nodes_gone_from_dev_is_2_and_quiet(self):
+        # sysfs still lists the keyboard, /dev no longer has it: re-enumerating.
+        import io
+        from contextlib import redirect_stderr
+        from unittest import mock
+        gone = ["/dev/hidraw-gone-1", "/dev/hidraw-gone-2"]
+        with mock.patch.object(kb_init, "keyboard_hidraw_nodes", lambda: iter(gone)):
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc = kb_init.send_handshake(hint=False, verbose=False)
+            self.assertEqual(rc, 2)
+            self.assertEqual(err.getvalue(), "")
+            with redirect_stderr(err):
+                self.assertEqual(kb_init.send_handshake(hint=False), 2)
+            self.assertIn("vanished", err.getvalue())
+
+
 class Descriptor(unittest.TestCase):
     def test_declared_feature_size_walks_a_descriptor(self):
         # Vendor collection: usage page 0xff31, report id 0x5a, 8-bit x 16

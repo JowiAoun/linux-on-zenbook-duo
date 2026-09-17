@@ -64,6 +64,36 @@ class FnRow(unittest.TestCase):
         self.assertEqual(table[0x10], "brightness-down", "defaults survive an override file")
 
 
+class ReEnumeration(unittest.TestCase):
+    """2026-09-16: five times in an evening the keyboard's nodes vanished and
+    came back within 2 s; each time the daemon rescanned mid-teardown, sent
+    the init to nodes that were gone, and logged "media keys are dead"."""
+
+    def test_settled_nodes_waits_for_two_scans_that_agree(self):
+        scans = iter([["/dev/hidraw5", "/dev/hidraw6"], ["/dev/hidraw4", "/dev/hidraw5", "/dev/hidraw6"],
+                      ["/dev/hidraw4", "/dev/hidraw5", "/dev/hidraw6"], ["never"]])
+        slept = []
+        nodes = watch_fn.settled_nodes(lambda: next(scans), sleep=slept.append)
+        self.assertEqual(nodes, ("/dev/hidraw4", "/dev/hidraw5", "/dev/hidraw6"))
+        self.assertEqual(len(slept), 2)
+
+    def test_settled_nodes_gives_up_after_its_tries(self):
+        n = iter(range(100))
+        nodes = watch_fn.settled_nodes(lambda: [f"/dev/hidraw{next(n)}"], sleep=lambda s: None, tries=3)
+        self.assertEqual(nodes, ("/dev/hidraw3",))
+
+    def test_the_first_attempts_are_not_an_alarm(self):
+        early = watch_fn.failure_message(1, 1, 2)
+        self.assertIn("waiting", early)
+        self.assertNotIn("dead", early)
+        denied = watch_fn.failure_message(13, 2, 4)
+        self.assertIn("not accessible yet", denied)
+        loud = watch_fn.failure_message(1, 3, 8)
+        self.assertIn("dead", loud)
+        self.assertIn("not confirmed", loud)
+        self.assertIn("udev", watch_fn.failure_message(13, 3, 8))
+
+
 class AbsentKeyboard(unittest.TestCase):
     """2026-09-05: the keyboard died on USB (enumerated, "can't set config",
     no hidraw nodes) and watch-fn went silent for five hours because the

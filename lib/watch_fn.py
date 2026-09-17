@@ -217,6 +217,43 @@ def absent_reason():
     return "no keyboard (undocked / BT off) — waiting"
 
 
+def settled_nodes(scan, sleep=time.sleep, tries=4, interval=0.5):
+    """The keyboard's node set once two scans in a row agree.
+
+    A re-enumerating keyboard shows a shrinking, then growing, node set for a
+    second or two. Acting on the first scan after a node was lost sent the
+    handshake to nodes that were gone by the time they were opened, and every
+    such event (2026-09-16: five in an evening) was logged as "media keys are
+    dead" and then confirmed fine 2 s later. After `tries` disagreeing scans
+    the last one is returned anyway; the open errors catch what is left.
+    """
+    current = tuple(sorted(scan()))
+    for _ in range(tries):
+        sleep(interval)
+        again = tuple(sorted(scan()))
+        if again == current:
+            return current
+        current = again
+    return current
+
+
+def failure_message(rc, failures, delay):
+    """What to say when the handshake did not land, scaled to how long it has
+    been failing: the first attempts after a dock routinely fail (the udev ACL
+    lands a moment after the nodes appear), so they are not an alarm yet."""
+    if failures < 3:
+        what = ("hidraw is not accessible yet" if rc == 13
+                else "waiting for the keyboard to echo the handshake")
+        return f"{what} (attempt {failures}); retrying in {delay}s"
+    if rc == 13:
+        return (f"hidraw is not accessible (attempt {failures}): the udev rule is missing "
+                f"or not applied (sudo ./install.sh --system, then re-seat the keyboard); "
+                f"retrying in {delay}s")
+    return (f"hotkey mode not confirmed (attempt {failures}): the media keys are dead until "
+            f"the keyboard echoes the handshake. Re-seat it, or share `duo doctor`; "
+            f"retrying in {delay}s")
+
+
 def slept_since(last):
     """(suspended?, new marks) — CLOCK_BOOTTIME counts suspend, CLOCK_MONOTONIC
     does not, so the gap between them is exactly the time spent asleep.
@@ -261,14 +298,29 @@ def main():
             for fd in list(fds):
                 os.close(fd)
             fds = {}
+            nodes = settled_nodes(kb_init.keyboard_hidraw_nodes)
             if nodes:
                 log(f"keyboard present on {' '.join(nodes)} — sending init")
-                rc = kb_init.send_handshake(hint=False)
+                rc = kb_init.send_handshake(hint=False, verbose=False)
+                vanished = []
                 for n in nodes:
                     try:
                         fds[os.open(n, os.O_RDONLY | os.O_NONBLOCK)] = n
+                    except FileNotFoundError:
+                        vanished.append(n)
                     except OSError as e:
                         log(f"cannot read {n}: {e}")
+                if rc == 2 or vanished:
+                    # The nodes went away under us: the keyboard is still
+                    # re-enumerating, or just left. That is not a handshake
+                    # failure, so it neither counts nor alarms; look again.
+                    log("keyboard nodes changed while sending the init (re-enumerating?); rescanning")
+                    for fd in list(fds):
+                        os.close(fd)
+                    fds = {}
+                    known = None
+                    retry_at = time.monotonic() + 1.0
+                    continue
                 # Only remember this node set once the init AND at least one open
                 # actually succeeded. Docking races udev: the hidraw nodes appear
                 # a moment before the uaccess ACL lands, so the first attempt can
@@ -292,9 +344,8 @@ def main():
                     failures += 1
                     delay = min(60, 2 ** min(failures, 6))
                     retry_at = time.monotonic() + delay
-                    if failures == 1 or failures % 10 == 0:
-                        log(f"hotkey mode not confirmed (attempt {failures}) — "
-                            f"media keys are dead; retrying in {delay}s")
+                    if failures in (1, 3) or failures % 10 == 0:
+                        log(failure_message(rc, failures, delay))
             else:
                 # The pogo link can be present and dead at the same time
                 # (dock.keyboard_usb_configured): the device enumerated but
@@ -314,7 +365,8 @@ def main():
             except OSError:
                 os.close(fd)
                 node = fds.pop(fd, None)
-                log(f"lost {node}; rescanning")
+                if known is not None:  # the first lost node says it; the rest are the same event
+                    log(f"lost {node}; rescanning")
                 known = None  # rescan, and report whichever state is found
                 continue
             if len(data) >= 2 and data[0] == VENDOR_REPORT_ID and data[1] != 0:
