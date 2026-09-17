@@ -247,6 +247,12 @@ is "an unknown flag is a usage error (64)"     "$(./uninstall.sh --bogus >/dev/n
 succeeds "--help exits 0"                      ./uninstall.sh --help
 is "--help prints the header only, no code"   "$(./uninstall.sh --help | grep -c 'set -euo')" 0
 
+group "bin/duo argument plumbing"
+is "help exits 0, not 64"                     "$(./bin/duo --help >/dev/null 2>&1; echo $?)" 0
+is "help goes to stdout"                      "$(./bin/duo help 2>/dev/null | grep -c '^usage:')" 1
+is "an unknown command is a usage error (64)" "$(./bin/duo bogus >/dev/null 2>&1; echo $?)" 64
+is "a usage error goes to stderr, not stdout" "$(./bin/duo bogus 2>/dev/null | grep -c '^usage:')" 0
+
 # ── summary ──────────────────────────────────────────────────────────────────
 printf '\n%s\n' "────────────────────────────────────────"
 printf '%d passed, %d failed, %d skipped\n' "$PASSED" "$FAILED" "$SKIPPED"

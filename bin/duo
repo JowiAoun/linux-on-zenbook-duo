@@ -59,7 +59,7 @@ log() {
   journal_is_stdio || logger -t "$TAG" -- "$*" 2>/dev/null || true
 }
 
-usage() {
+usage_text() {
   cat <<'USAGE'
 usage: duo <command>
 
@@ -106,8 +106,9 @@ usage: duo <command>
   log                    follow zenduo journal messages
   version                print the installed version
 USAGE
-  exit 64
 }
+
+usage() { usage_text >&2; exit 64; }
 
 # ── shared probes ────────────────────────────────────────────────────────────
 
@@ -712,7 +713,10 @@ cmd_watch_rotation() {
 cmd_fn_probe() {
   # The Duo media/Fn keys are ASUS vendor usages hid-generic drops (V8), so they
   # never reach the input layer — capture the RAW hidraw reports instead.
-  python3 "$LIB/fn_probe.py" | tee /tmp/zenduo-fn-probe.log
+  local copy="${XDG_STATE_HOME:-$HOME/.local/state}/zenduo/fn-probe.log"
+  mkdir -p "$(dirname "$copy")"
+  echo "fn-probe: a copy of this session goes to $copy" >&2
+  python3 "$LIB/fn_probe.py" | tee "$copy"
 }
 
 cmd_fn_map() {
@@ -972,5 +976,6 @@ case "$cmd" in
   # daemons' stdout under the executable's name.
   log)                journalctl --user -t "$TAG" -t duo -n 50 -f ;;
   version|--version)  cat "$DUO_ROOT/VERSION" 2>/dev/null || echo dev ;;
-  help|-h|--help|*)   usage ;;
+  help|-h|--help)     usage_text ;;
+  *)                  usage ;;
 esac
