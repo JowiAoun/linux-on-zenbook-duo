@@ -37,7 +37,7 @@ if command -v fuser >/dev/null 2>&1 && fuser /var/lib/dpkg/lock-frontend >/dev/n
 fi
 
 # Sanity-check the source tree we are about to install from.
-for f in bin/duo helper/zenduo-helper lib/displayctl.py lib/watch_displays.py lib/watch_fn.py; do
+for f in bin/duo bin/duo-cli helper/zenduo-helper lib/displayctl.py lib/watch_displays.py lib/watch_fn.py; do
   [ -f "$ZENDUO_SRC/$f" ] || die "missing $ZENDUO_SRC/$f — incomplete checkout?"
 done
 

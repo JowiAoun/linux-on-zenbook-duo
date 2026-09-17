@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lib/conf.sh — read ~/.config/zenduo/zenduo.conf. Sourced by bin/duo.
+# lib/conf.sh — read ~/.config/zenduo/zenduo.conf. Sourced by bin/duo-cli.
 #
 # The file is `KEY=value` lines, `#` comments, nothing else. It is parsed, not
 # sourced: a config file must never be able to run code, and a value is only

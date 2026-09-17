@@ -34,26 +34,26 @@ uninstall:
 	./uninstall.sh
 
 doctor:
-	bin/duo doctor
+	bin/duo-cli doctor
 
 status:
-	bin/duo status
+	bin/duo-cli status
 
 features:
-	bin/duo features
+	bin/duo-cli features
 
 test:
 	bash tests/test-lib.sh
 	$(PYTHON) -m unittest discover -s tests -v
 
 lint:
-	bash -n bin/duo helper/zenduo-helper install.sh uninstall.sh lib/conf.sh system/*.sh tests/*.sh
+	bash -n bin/duo-cli helper/zenduo-helper install.sh uninstall.sh lib/conf.sh system/*.sh tests/*.sh
 	@if command -v shellcheck >/dev/null 2>&1; then \
-	  shellcheck -x bin/duo helper/zenduo-helper install.sh uninstall.sh lib/conf.sh system/*.sh tests/*.sh; \
+	  shellcheck -x bin/duo-cli helper/zenduo-helper install.sh uninstall.sh lib/conf.sh system/*.sh tests/*.sh; \
 	else echo "shellcheck not installed — skipped (CI runs it)"; fi
-	$(PYTHON) -m py_compile lib/*.py tests/*.py
+	$(PYTHON) -m py_compile bin/duo lib/*.py tests/*.py
 	@# The trap that shipped three times: a pipe into grep -q under pipefail.
-	@if grep -nE '\|[[:space:]]*grep[[:space:]]+-[a-zA-Z]*q' bin/duo install.sh uninstall.sh lib/conf.sh system/*.sh | grep -v '^[^:]*:[0-9]*:[[:space:]]*#'; then \
+	@if grep -nE '\|[[:space:]]*grep[[:space:]]+-[a-zA-Z]*q' bin/duo-cli install.sh uninstall.sh lib/conf.sh system/*.sh | grep -v '^[^:]*:[0-9]*:[[:space:]]*#'; then \
 	  echo "^ never pipe into grep -q (see docs/DESIGN.md) — capture, then match" >&2; exit 1; fi
 
 preset:

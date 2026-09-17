@@ -137,7 +137,7 @@ def set_level(level):
 
 def main(argv):
     # --record just remembers a level someone else already applied (the native
-    # LED path in bin/duo), so the cycle and the restore stay in step with the
+    # LED path in bin/duo-cli), so the cycle and the restore stay in step with the
     # hardware whichever transport set it.
     if len(argv) == 2 and argv[0] == "--record" and argv[1] in ("0", "1", "2", "3"):
         save_level(int(argv[1]))

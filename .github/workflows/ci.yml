@@ -11,12 +11,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: bash syntax
-        run: bash -n bin/duo helper/zenduo-helper install.sh uninstall.sh lib/conf.sh system/*.sh tests/*.sh
+        run: bash -n bin/duo-cli helper/zenduo-helper install.sh uninstall.sh lib/conf.sh system/*.sh tests/*.sh
       - name: shellcheck
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck
-          shellcheck -x bin/duo helper/zenduo-helper install.sh uninstall.sh lib/conf.sh system/*.sh tests/*.sh
+          shellcheck -x bin/duo-cli helper/zenduo-helper install.sh uninstall.sh lib/conf.sh system/*.sh tests/*.sh
       # Behavioural tests of the helpers. shellcheck passes on a script whose
       # detection helper returns the wrong answer — that is exactly how the
       # pipefail/SIGPIPE bug shipped. Under sudo so the root-only cases run.
@@ -30,18 +30,19 @@ jobs:
         run: sudo bash system/run.sh --dry-run --force --user runner
       - name: CLI runs read-only commands anywhere
         run: |
-          bin/duo version
-          bin/duo config show
-          bin/duo features
+          bin/duo-cli version
+          bin/duo-cli config show
+          bin/duo-cli features
+          bin/duo version            # the launcher forwards to duo-cli
           make lint
-          bin/duo doctor || true   # a non-Duo runner fails the gate on purpose; it must not crash
+          bin/duo-cli doctor || true   # a non-Duo runner fails the gate on purpose; it must not crash
 
   python:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: bytecompile
-        run: python3 -m py_compile lib/*.py tests/*.py
+        run: python3 -m py_compile bin/duo lib/*.py tests/*.py
       - name: unit tests (without PyGObject — the layout maths must not need it)
         run: python3 -m unittest discover -s tests -v
       - name: unit tests (with PyGObject, the interpreter `duo` pins on Ubuntu)

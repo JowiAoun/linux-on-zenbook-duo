@@ -117,7 +117,7 @@ STORM_BACKOFF_SECONDS = 60
 INTERNAL = (displayctl.TOP, displayctl.BOTTOM)
 
 DUO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                    "..", "bin", "duo"))
+                                    "..", "bin", "duo-cli"))
 
 
 def remembering():

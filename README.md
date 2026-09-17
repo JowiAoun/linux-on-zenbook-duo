@@ -65,7 +65,7 @@ That does two things, both idempotent (a second run reports "up to date"):
 1. **Root half** (`sudo`, [system/](system/)): installs the few packages the
    tooling needs (`python3-gi`, `iio-sensor-proxy`, `inotify-tools`, …), on
    Ubuntu keeps the HWE kernel plus the GA kernel as a fallback, adds
-   `i915.enable_psr=0` to GRUB, puts `duo` at `/usr/local/bin/duo`, installs
+   `i915.enable_psr=0` to GRUB, puts `duo` and `duo-cli` in `/usr/local/bin`, installs
    the udev rules that let the keyboard tooling run unprivileged, a 50-line
    root helper with a sudoers rule scoped to that one binary, the libinput
    palm-rejection quirk, and the speaker-amp reporter.
@@ -80,7 +80,7 @@ Every flag: `./install.sh --help`. Reboot if the kernel or GRUB changed.
 read-only probe — it is the gate the whole project was installed behind:
 
 ```bash
-bin/duo doctor        # no dependencies beyond bash; safe anywhere
+bin/duo-cli doctor    # no dependencies beyond bash; safe anywhere
 ```
 
 Installing Ubuntu next to Windows on this machine has its own traps (five
@@ -167,6 +167,8 @@ backing off from a layout fight. `REMEMBER_LAYOUT=0` turns the whole thing off
 and leaves `monitors.xml` alone.
 
 ## Commands
+
+Every command is `duo-cli <command>`; `duo <command>` runs the same thing.
 
 ```
 duo doctor                 full read-only hardware probe — safe anywhere, incl. a live USB
@@ -286,7 +288,8 @@ dotfiles ([JowiAoun/dome](https://github.com/JowiAoun/dome)) consume it.
 ## Repository layout
 
 ```
-bin/duo                  the CLI (bash); every feature is a subcommand
+bin/duo-cli              the CLI (bash); every feature is a subcommand
+bin/duo                  the launcher: `duo <command>` runs `duo-cli <command>`
 lib/*.py                 the daemons and helpers (python3, stdlib + PyGObject for Mutter)
 lib/conf.sh              the config-file reader
 helper/zenduo-helper     the ONLY root code: two validated verbs, 50 lines

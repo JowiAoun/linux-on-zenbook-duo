@@ -7,7 +7,7 @@
 #
 # Two halves, both run by default:
 #   --system   root: packages, kernel policy (Ubuntu), GRUB PSR fix, the `duo`
-#              command, udev rules, the root helper + sudoers rule, the
+#              and `duo-cli` commands, udev rules, the root helper + sudoers rule, the
 #              touchpad quirk, the speaker-amp reporter.   (system/run.sh)
 #   --user     you: ~/.config/zenduo/zenduo.conf, the duo-* systemd user units,
 #              and the features you asked for, started now.
@@ -107,9 +107,10 @@ user_phase() {
   source "$SRC/lib/conf.sh"
   export ZENDUO_CONF_EXAMPLE="$SRC/config/zenduo.conf.example"
 
-  # Which `duo` the units run. The system half puts it at $PREFIX/bin/duo;
-  # without the system half (or before it) fall back to this checkout.
-  if [ -x "$PREFIX/bin/duo" ]; then duo="$PREFIX/bin/duo"; else duo="$SRC/bin/duo"; fi
+  # Which `duo-cli` the units run. The system half puts it at
+  # $PREFIX/bin/duo-cli; without the system half (or before it) fall back to
+  # this checkout.
+  if [ -x "$PREFIX/bin/duo-cli" ]; then duo="$PREFIX/bin/duo-cli"; else duo="$SRC/bin/duo-cli"; fi
   log "units will run: $duo"
 
   # home-manager owns the user half on some machines (the author's): the
@@ -162,7 +163,7 @@ user_phase() {
   local changed=0
   for f in "$units_src"/duo-*.service; do
     name="$(basename "$f")"
-    body="$(sed "s|^ExecStart=/usr/local/bin/duo|ExecStart=$duo|" "$f")"
+    body="$(sed "s|^ExecStart=/usr/local/bin/duo-cli|ExecStart=$duo|" "$f")"
     cur="$(cat "$units_dst/$name" 2>/dev/null || true)"
     if [ "$cur" = "$body" ]; then
       log "unit up to date: $name"

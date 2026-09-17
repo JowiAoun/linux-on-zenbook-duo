@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 40-cli.sh — put the `duo` command on the system.
+# 40-cli.sh — put the `duo` and `duo-cli` commands on the system.
 #
-# Layout: $PREFIX/lib/zenduo/{bin,lib,helper,config,presets,VERSION} plus the symlink
-# $PREFIX/bin/duo -> $PREFIX/lib/zenduo/bin/duo. A system-wide `duo` works from
-# any shell AND under sudo (sudo resets PATH to secure_path, which includes
-# /usr/local/bin but never the user's home).
+# Layout: $PREFIX/lib/zenduo/{bin,lib,helper,config,presets,VERSION} plus the
+# symlinks $PREFIX/bin/duo and $PREFIX/bin/duo-cli into $PREFIX/lib/zenduo/bin.
+# A system-wide `duo` works from any shell AND under sudo (sudo resets PATH to
+# secure_path, which includes /usr/local/bin but never the user's home).
 #
 # Two modes:
 #   default   COPY the tree. Survives the checkout moving or being deleted.
@@ -18,7 +18,6 @@ source ./lib.sh
 require_root
 
 LIBDIR="$ZENDUO_PREFIX/lib/zenduo"
-BINLINK="$ZENDUO_PREFIX/bin/duo"
 
 if [ "${ZENDUO_DEV:-0}" = 1 ]; then
   if [ "$(readlink -f "$LIBDIR" 2>/dev/null || true)" = "$(readlink -f "$ZENDUO_SRC")" ]; then
@@ -54,6 +53,7 @@ else
       rm -rf "$LIBDIR"
       install -d -o root -g root -m 0755 "$LIBDIR" "$LIBDIR/bin" "$LIBDIR/lib" "$LIBDIR/helper"
       install -o root -g root -m 0755 "$ZENDUO_SRC/bin/duo" "$LIBDIR/bin/duo"
+      install -o root -g root -m 0755 "$ZENDUO_SRC/bin/duo-cli" "$LIBDIR/bin/duo-cli"
       install -o root -g root -m 0755 "$ZENDUO_SRC/helper/zenduo-helper" "$LIBDIR/helper/zenduo-helper"
       for f in "$ZENDUO_SRC"/lib/*.py "$ZENDUO_SRC"/lib/*.sh; do
         [ -e "$f" ] || continue
@@ -68,10 +68,13 @@ else
   fi
 fi
 
-if [ "$(readlink -f "$BINLINK" 2>/dev/null || true)" = "$(readlink -f "$LIBDIR/bin/duo" 2>/dev/null || true)" ] && [ -e "$BINLINK" ]; then
-  log "duo symlink up to date: $BINLINK"
-else
-  log "linking $BINLINK -> $LIBDIR/bin/duo"
-  run install -d -o root -g root -m 0755 "$ZENDUO_PREFIX/bin"
-  run ln -sfn "$LIBDIR/bin/duo" "$BINLINK"
-fi
+for name in duo duo-cli; do
+  binlink="$ZENDUO_PREFIX/bin/$name"
+  if [ "$(readlink -f "$binlink" 2>/dev/null || true)" = "$(readlink -f "$LIBDIR/bin/$name" 2>/dev/null || true)" ] && [ -e "$binlink" ]; then
+    log "$name symlink up to date: $binlink"
+  else
+    log "linking $binlink -> $LIBDIR/bin/$name"
+    run install -d -o root -g root -m 0755 "$ZENDUO_PREFIX/bin"
+    run ln -sfn "$LIBDIR/bin/$name" "$binlink"
+  fi
+done

@@ -48,10 +48,11 @@ is the udev rule and the 50-line helper.
 ## Layout and how to check your work
 
 ```
-bin/duo            CLI, bash. Subcommands dispatch to lib/*.py or do sysfs work inline.
+bin/duo-cli        CLI, bash. Subcommands dispatch to lib/*.py or do sysfs work inline.
+bin/duo            python launcher: `duo <cmd>` runs `duo-cli <cmd>`.
 lib/*.py           daemons + helpers. stdlib only, except displayctl/watch_displays (PyGObject,
                    run with $DUO_PYGI = /usr/bin/python3 on Ubuntu because a Nix/pyenv python has no gi).
-lib/conf.sh        the config reader, sourced by bin/duo (parsed, never sourced).
+lib/conf.sh        the config reader, sourced by bin/duo-cli (parsed, never sourced).
 system/*.sh        root half. Each: source lib.sh; require_root; feature_on NAME default; idempotent; DRY_RUN.
 systemd/user/      unit templates install.sh copies; nix/home-manager.nix generates its own.
 nix/               flake + package + module. `nix flake check` builds and evaluates everything.

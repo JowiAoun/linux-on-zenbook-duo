@@ -33,7 +33,7 @@ Legend: ⛔ = hard gate, do not pass on a failure.
 - [ ] A9 `chkdsk C: /scan` clean
 - [ ] A10 `ubuntu-24.04.4-desktop-amd64.iso` downloaded, SHA256 verified
 - [ ] A11 ISO written to stick #2 (Rufus GPT/UEFI or Ventoy), boot-tested
-- [ ] A12 This repo copied onto stick #2 (`bin/duo` present)
+- [ ] A12 This repo copied onto stick #2 (`bin/duo-cli` present)
 - [ ] A13 **BitLocker suspended**: `manage-bde -protectors -disable C: -RebootCount 3` (do B/C/D in one sitting)
 
 ## B · BIOS (§5, ~10 min)
@@ -45,7 +45,7 @@ Legend: ⛔ = hard gate, do not pass on a failure.
 
 - [ ] Esc-boot stick #2 → **Try Ubuntu** (NOT Install)
 - [ ] Wi-Fi connected
-- [ ] `bash <stick>/linux-on-zenbook-duo/bin/duo doctor | tee ~/doctor-live.txt` → **no MUST failures**
+- [ ] `bash <stick>/linux-on-zenbook-duo/bin/duo-cli doctor | tee ~/doctor-live.txt` → **no MUST failures**
 - [ ] Keyboard types attached; detach → **Wi-Fi stays up**; BT pair (left switch, PIN) → types detached
 - [ ] Both screens touch-respond (mis-mapping OK, dead touch NOT)
 - [ ] Audio + camera tried (record result; not blocking)

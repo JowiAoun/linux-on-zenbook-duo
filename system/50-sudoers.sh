@@ -15,7 +15,7 @@ source ./lib.sh
 require_root
 
 HELPER_SRC="$ZENDUO_SRC/helper/zenduo-helper"
-HELPER_DST=/usr/local/sbin/zenduo-helper   # fixed: bin/duo and the sudoers rule name this path
+HELPER_DST=/usr/local/sbin/zenduo-helper   # fixed: bin/duo-cli and the sudoers rule name this path
 [ -f "$HELPER_SRC" ] || die "missing $HELPER_SRC — repo incomplete?"
 
 if cmp -s "$HELPER_SRC" "$HELPER_DST" 2>/dev/null; then

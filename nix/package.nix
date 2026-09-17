@@ -1,4 +1,4 @@
-# The `duo` CLI and its daemons as a Nix package. The home-manager module uses
+# The `duo` screen, the `duo-cli` command and their daemons as a Nix package. The home-manager module uses
 # it by default; `nix run github:JowiAoun/linux-on-zenbook-duo -- doctor` works
 # on any machine with Nix.
 #
@@ -33,11 +33,13 @@ stdenvNoCC.mkDerivation {
     runHook preInstall
     mkdir -p $out/lib/zenduo $out/bin
     cp -r bin lib helper config presets VERSION $out/lib/zenduo/
-    chmod +x $out/lib/zenduo/bin/duo $out/lib/zenduo/helper/zenduo-helper
-    makeWrapper $out/lib/zenduo/bin/duo $out/bin/duo \
-      --set-default DUO_PYGI ${pyGi}/bin/python3 \
-      --prefix GI_TYPELIB_PATH : ${lib.makeSearchPath "lib/girepository-1.0" [ glib gobject-introspection ]} \
-      --prefix PATH : ${lib.makeBinPath [ python3 glib dconf inotify-tools pciutils usbutils util-linux ]}
+    chmod +x $out/lib/zenduo/bin/duo $out/lib/zenduo/bin/duo-cli $out/lib/zenduo/helper/zenduo-helper
+    for name in duo duo-cli; do
+      makeWrapper $out/lib/zenduo/bin/$name $out/bin/$name \
+        --set-default DUO_PYGI ${pyGi}/bin/python3 \
+        --prefix GI_TYPELIB_PATH : ${lib.makeSearchPath "lib/girepository-1.0" [ glib gobject-introspection ]} \
+        --prefix PATH : ${lib.makeBinPath [ python3 glib dconf inotify-tools pciutils usbutils util-linux ]}
+    done
     runHook postInstall
   '';
 

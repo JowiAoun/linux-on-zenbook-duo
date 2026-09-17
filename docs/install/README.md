@@ -56,7 +56,7 @@ session; fetch the repo instead:
 ```bash
 wget https://github.com/JowiAoun/linux-on-zenbook-duo/archive/refs/heads/main.tar.gz
 tar xf main.tar.gz
-bash linux-on-zenbook-duo-main/bin/duo doctor | tee ~/doctor-live.txt
+bash linux-on-zenbook-duo-main/bin/duo-cli doctor | tee ~/doctor-live.txt
 ```
 
 The live home is RAM: photograph or upload the output. Then by hand: type

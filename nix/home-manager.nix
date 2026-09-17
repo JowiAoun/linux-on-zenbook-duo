@@ -92,8 +92,8 @@ in
       type = lib.types.str;
       internal = true;
       readOnly = true;
-      default = if cfg.repoPath != null then "${cfg.repoPath}/bin/duo" else "${cfg.package}/bin/duo";
-      description = "The duo executable the units use (derived).";
+      default = if cfg.repoPath != null then "${cfg.repoPath}/bin/duo-cli" else "${cfg.package}/bin/duo-cli";
+      description = "The duo-cli executable the units use (derived).";
     };
 
     writeConfig = lib.mkOption {

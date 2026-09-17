@@ -39,7 +39,7 @@ import kb_backlight  # noqa: E402  (same directory; owns the remembered level)
 import dock  # noqa: E402  (same directory; keyboard dock state)
 
 DUO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                    "..", "bin", "duo"))
+                                    "..", "bin", "duo-cli"))
 
 VENDOR_REPORT_ID = 0x5A
 
