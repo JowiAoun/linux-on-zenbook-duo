@@ -487,11 +487,17 @@ def read_glance():
     node = _glob_first("/sys/class/power_supply/BAT*/charge_control_end_threshold")
     g.battery_node = node
     g.battery_now = _read(node) if node else ""
+    # Any failure here is "unreadable", not a dead screen: seen 2026-09-17 with
+    # a python whose expat could not load (an LD_LIBRARY_PATH pointing at an
+    # older libexpat), which is an ImportError, not a FormatError.
     try:
         g.memory_sets = len(monitors_xml.load().configurations)
-    except (monitors_xml.FormatError, OSError):
+    except Exception:
         g.memory_sets = -1
-    g.login_state = monitors_xml.login_screen_state() or ""
+    try:
+        g.login_state = monitors_xml.login_screen_state() or ""
+    except Exception:
+        g.login_state = ""
     g.helper = os.access("/usr/local/sbin/zenduo-helper", os.X_OK)
     g.udev = os.path.exists("/etc/udev/rules.d/70-zenduo.rules")
     try:

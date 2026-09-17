@@ -644,8 +644,10 @@ class Services(View):
     def render(self, cv, r):
         t, g = self.app.t, self.app.g
         rows = self.rows()
-        detail_h = min(12, max(6, r.h // 3))
-        list_h = r.h - detail_h - 1
+        # The detail pane gives way first: on a short terminal the list of
+        # features is the part that must stay readable.
+        detail_h = max(3, min(12, r.h // 3))
+        list_h = max(2, r.h - detail_h - 1)
         self.cur.clamp(len(rows), list_h - 1)
         cols = (16, 11, 26)
         head = f"{'FEATURE':<{cols[0]}} {'STATE':<{cols[1]}} {'DETAIL':<{cols[2]}} WHAT"
