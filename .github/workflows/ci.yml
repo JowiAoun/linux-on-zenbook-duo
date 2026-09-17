@@ -45,6 +45,10 @@ jobs:
         run: python3 -m py_compile bin/duo lib/*.py tests/*.py
       - name: unit tests (without PyGObject — the layout maths must not need it)
         run: python3 -m unittest discover -s tests -v
+      - name: the screen renders without a terminal
+        run: |
+          bin/duo --help
+          for v in overview services settings displays doctor logs; do bin/duo --snapshot $v 100x30 | head -3; done
       - name: unit tests (with PyGObject, the interpreter `duo` pins on Ubuntu)
         run: |
           sudo apt-get install -y -qq python3-gi

@@ -49,7 +49,8 @@ is the udev rule and the 50-line helper.
 
 ```
 bin/duo-cli        CLI, bash. Subcommands dispatch to lib/*.py or do sysfs work inline.
-bin/duo            python launcher: `duo <cmd>` runs `duo-cli <cmd>`.
+bin/duo            the screen (python, stdlib curses) via lib/duo_tui.py + lib/duo_model.py;
+                   `duo <cmd>` execs `duo-cli <cmd>`. The screen only ever acts through duo-cli.
 lib/*.py           daemons + helpers. stdlib only, except displayctl/watch_displays (PyGObject,
                    run with $DUO_PYGI = /usr/bin/python3 on Ubuntu because a Nix/pyenv python has no gi).
 lib/conf.sh        the config reader, sourced by bin/duo-cli (parsed, never sourced).

@@ -2,7 +2,7 @@
 
 ## Architecture
 
-Two halves, one CLI.
+Two halves, one CLI, and a screen on top of the CLI.
 
 - **Root half** (`system/`): idempotent bash scripts, one per concern, run by
   `install.sh` through `system/run.sh`. They install files and rules; they
@@ -21,6 +21,13 @@ Features are systemd user units; `duo features` reads their state and
 `duo enable/disable` changes it. System features are installer flags. The
 home-manager module generates the same units declaratively and marks them
 `[hm]` in `duo features`.
+
+- **The screen** (`bin/duo`, `lib/duo_tui.py`, `lib/duo_model.py`) shows all
+  of that in one place and changes it only by running `duo-cli` or
+  `systemctl --user`. It has no knowledge of its own: if the screen can do
+  something the command line cannot, that is a bug. Stdlib curses, no other
+  dependency, and every view renders to text (`duo --snapshot`) so it is
+  tested without a terminal.
 
 ## Rules
 

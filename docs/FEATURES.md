@@ -61,4 +61,4 @@ What the machine does under Windows, whether it does it here, and how.
 | Windows Hello (IR face) | — | ✖ (Howdy unreliable; revisit after 1.0) |
 | NPU | — | ✖ |
 | BIOS updates | MyASUS or EZ-Flash from USB; never from Linux | ✖ by design |
-| A settings app | `duo features` / `duo config` | 📝 phase W |
+| A settings app | `duo`: the screen, with every feature, knob, check and log (`duo-cli features` / `duo-cli config` underneath) | 🧪 2026-09-17 |

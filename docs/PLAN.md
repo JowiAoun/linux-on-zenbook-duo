@@ -249,10 +249,12 @@ clean Ubuntu equals `./install.sh --system`.
 
 ### W. A settings surface
 
-`duo features` and the config file are enough for a terminal. A GNOME Shell
-extension or a small GTK window with the same toggles would make it usable
-by people who never open one. *Gate:* every feature and knob is reachable from
-it, and it does nothing the CLI cannot.
+Done in the terminal (2026-09-17): `duo` opens a curses screen with every
+feature, knob, check and log, and the command line moved to `duo-cli`. The
+screen acts only through `duo-cli`, so it does nothing the CLI cannot. Still
+open: a GNOME Shell extension or a small GTK window with the same toggles for
+people who never open a terminal. *Gate:* every feature and knob is reachable
+from it, and it does nothing the CLI cannot.
 
 ### X. Diagnostics
 

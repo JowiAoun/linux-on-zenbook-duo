@@ -21,6 +21,7 @@ EDID serials; redact them if you like.
 systemctl --user restart duo-watch-displays duo-watch-fn   # a running daemon has its code loaded
 make test                       # bash + python unit tests (sudo make test for the root-only cases)
 make lint                       # bash -n, shellcheck, py_compile
+bin/duo --snapshot services     # one frame of the screen as text; tests/test_duo_tui.py renders every view
 nix flake check                 # if you touch nix/
 ```
 

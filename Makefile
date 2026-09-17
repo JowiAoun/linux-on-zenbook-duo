@@ -2,7 +2,7 @@
 
 PYTHON ?= python3
 
-.PHONY: help install install-system install-user uninstall dry-run doctor status features test lint preset
+.PHONY: help install install-system install-user uninstall dry-run doctor status features screen test lint preset
 
 help:
 	@echo "targets:"
@@ -14,6 +14,7 @@ help:
 	@echo "  make doctor          - duo doctor (read-only hardware probe, live-USB safe)"
 	@echo "  make status          - duo status"
 	@echo "  make features        - duo features"
+	@echo "  make screen          - duo, the screen (bin/duo --snapshot VIEW prints one frame as text)"
 	@echo "  make test            - shell + python unit tests (sudo make test covers root-only cases)"
 	@echo "  make lint            - bash -n, shellcheck (if installed), py_compile"
 	@echo "  make preset          - regenerate presets/easyeffects/duo-speakers.json from lib/speaker_dsp.py"
@@ -41,6 +42,9 @@ status:
 
 features:
 	bin/duo-cli features
+
+screen:
+	bin/duo
 
 test:
 	bash tests/test-lib.sh

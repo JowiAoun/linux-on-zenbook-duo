@@ -166,6 +166,39 @@ the next dock change by design, and anything applied while the daemon is
 backing off from a layout fight. `REMEMBER_LAYOUT=0` turns the whole thing off
 and leaves `monitors.xml` alone.
 
+## The screen
+
+`duo` on its own opens a screen with everything above in one place. It runs
+on the python3 Ubuntu ships, curses included, and needs nothing else.
+
+```
+duo                      # open it
+duo --snapshot logs      # one frame of a view as plain text, for a bug report
+```
+
+Six views, picked with `1`-`6` or Tab:
+
+- **Overview**: panels, keyboard, dock policy, backlights, battery limit,
+  speaker amps, every daemon's state, and the last warnings and errors from
+  the journal. `k` sets the keyboard backlight, `b` the battery limit,
+  `a` enforces the dock policy once, `R` restarts the daemons.
+- **Services**: each feature with its unit state, restart count and last exit
+  code, and the recent errors from that unit alone. `e` enable, `d` disable,
+  `r` restart, `s` start or stop, `l` its logs. System features show the
+  installer command instead of running anything as root.
+- **Settings**: every knob in `zenduo.conf` with what it does, edited in place
+  (toggles, choice lists, checked prompts) and written by `duo-cli config
+  set`. When the knob's daemon is running, the screen offers the restart.
+- **Displays**: what Mutter runs now, what is remembered for these monitors,
+  and the panel and layout verbs.
+- **Doctor**: `duo-cli doctor` coloured, with a problems-only filter.
+- **Logs**: the zenduo journal live, per unit or all, errors only, filtered,
+  plus the kernel's Duo-related lines. Enter opens an entry in full.
+
+Every action is a `duo-cli` or `systemctl --user` command; the status line
+shows what it printed and a failure opens the full output. `?` lists the keys
+of the view you are on.
+
 ## Commands
 
 Every command is `duo-cli <command>`; `duo <command>` runs the same thing.
@@ -289,7 +322,8 @@ dotfiles ([JowiAoun/dome](https://github.com/JowiAoun/dome)) consume it.
 
 ```
 bin/duo-cli              the CLI (bash); every feature is a subcommand
-bin/duo                  the launcher: `duo <command>` runs `duo-cli <command>`
+bin/duo                  the screen (python, curses); `duo <command>` runs `duo-cli <command>`
+lib/duo_tui.py           the screen's views; lib/duo_model.py reads for it and acts through duo-cli
 lib/*.py                 the daemons and helpers (python3, stdlib + PyGObject for Mutter)
 lib/conf.sh              the config-file reader
 helper/zenduo-helper     the ONLY root code: two validated verbs, 50 lines

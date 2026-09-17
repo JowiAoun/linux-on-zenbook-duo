@@ -1,22 +1,45 @@
 #!/usr/bin/env python3
 """duo: the front door of linux-on-zenbook-duo.
 
-    duo <command> [args]   runs `duo-cli <command> [args]`, the bash CLI next to
-                           this file (every command `duo` ever had still works)
-    duo                    the CLI's usage, until the screen lands here
+    duo                    open the screen: features, knobs, checks, logs
+    duo <command> [args]   run `duo-cli <command> [args]`, the bash CLI next
+                           to this file (every command `duo` ever had)
+    duo --snapshot [VIEW] [WxH]
+                           print one frame of the screen as text and exit
+                           (no terminal needed; for CI and bug reports)
+    duo --ascii            open the screen without box-drawing characters
+    duo --help | --version
+
+The screen needs python3 with its curses module, which Ubuntu ships; it has
+no other dependency. It never reads or changes anything on its own: every
+value comes from the same lib modules the daemons use, and every change goes
+through duo-cli, so the screen and the command line cannot disagree.
 """
 
 import os
 import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
+ROOT = os.path.dirname(HERE)
 CLI = os.path.join(HERE, "duo-cli")
+
+SCREEN_FLAGS = ("--snapshot", "--ascii")
 
 
 def main(argv):
-    args = argv or ["help"]
-    os.execv(CLI, [CLI] + args)
+    if argv and argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    if argv and argv[0] in ("--version", "version"):
+        os.execv(CLI, [CLI, "version"])
+    if argv and argv[0] not in SCREEN_FLAGS:
+        # A command: hand everything to the CLI, replacing this process so the
+        # exit code and the output are the CLI's own.
+        os.execv(CLI, [CLI] + argv)
+    sys.path.insert(0, os.path.join(ROOT, "lib"))
+    import duo_tui
+    return duo_tui.main(argv)
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    sys.exit(main(sys.argv[1:]))

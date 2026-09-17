@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### `duo` is a screen now; the command line is `duo-cli`
+
+- `duo` opens a curses screen (python3 as Ubuntu ships it, nothing else) with
+  six views: an overview of the machine and the daemons, the services with
+  their restart counts, exit codes and per-unit errors and the keys to
+  enable, disable, restart, start and stop them, the settings edited in
+  place, the displays with the layout verbs, the doctor, and the journal live
+  with per-unit and errors-only filters plus the kernel's Duo lines. Every
+  action is a `duo-cli` or `systemctl --user` command and the screen shows
+  what it printed
+- the bash CLI is `duo-cli`; `duo <command>` still runs it, so scripts, the
+  units and the second-screen key keep working. The units, the installer,
+  the Nix package and the home-manager module name `duo-cli` directly
+- `duo --snapshot [view] [WxH]` prints one frame as text, which is what CI
+  and a bug report use
+
+### Fixes
+
+- `duo-cli doctor` and the amp reporter no longer call the speaker amps
+  "clean" when the kernel journal is not readable; doctor's kernel log scan
+  now reads the journal when `dmesg` is root-only
+- the layout memory no longer logs "remembered" and pushes the login screen
+  on every settle when the stored entry carries a `maxbpc` or presentation flag
+- `watch-displays` keeps its MonitorsChanged subscription after a D-Bus
+  failure made it replace the Mutter proxy
+- `duo-cli config set` accepts a value with a slash
+- `./install.sh --help` and `./uninstall.sh --help` print the header only
+- `duo-cli --help` exits 0; `fn-probe` keeps its copy under
+  `~/.local/state/zenduo` instead of a fixed name in `/tmp`
+
 ### The display layout is remembered, the way Windows remembers it
 
 - the layout is recorded per set of connected monitors and restored by GNOME
