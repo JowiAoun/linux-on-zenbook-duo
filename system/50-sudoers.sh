@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # 50-sudoers.sh — installs the zenduo root helper and its sudoers rule.
 #
-# The helper ($PREFIX/sbin/zenduo-helper) is the ONLY thing granted NOPASSWD,
-# and it validates its input to two verbs:
+# The helper (/usr/local/sbin/zenduo-helper) is the ONLY thing granted
+# NOPASSWD, and it validates its input to three verbs:
 #   backlight <device> <0-100>   write a backlight percentage
 #   batlimit <20-100>            set the battery charge-limit threshold
+#   login-layout [--quiet]       copy the caller's monitors.xml to the greeter
 # This is deliberately narrower than a "NOPASSWD /usr/bin/env" rule: the
 # helper's source is 50 lines and every byte of input is checked.
 set -euo pipefail
