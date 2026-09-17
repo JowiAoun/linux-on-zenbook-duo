@@ -154,6 +154,7 @@ class Watcher:
         self._record_timer = 0
         self._announced_memory_error = False
         self._children = []     # backgrounded sync-backlight runs, reaped by the poll
+        self._subscribe = False  # run() sets it: every proxy gets the signal handler
         self.loop = GLib.MainLoop()
 
     # ── plumbing ─────────────────────────────────────────────────────────────
@@ -161,6 +162,12 @@ class Watcher:
     def proxy(self):
         if self._proxy is None:
             self._proxy = displayctl.proxy()
+            # The MonitorsChanged subscription lives on the proxy object.
+            # converge() drops the proxy after a D-Bus failure so a restarted
+            # gnome-shell gets a fresh one; without re-subscribing here the
+            # daemon then only ever woke for the keyboard poll and resume.
+            if self._subscribe:
+                self._proxy.connect("g-signal", self.on_monitors_changed)
         return self._proxy
 
     def schedule(self, delay_ms=COALESCE_MS):
@@ -551,8 +558,9 @@ class Watcher:
         for sig in (signal.SIGINT, signal.SIGTERM):
             GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, sig, self.quit)
 
+        self._subscribe = True
         try:
-            self.proxy().connect("g-signal", self.on_monitors_changed)
+            self.proxy()
         except displayctl.DisplayCtlError as e:
             # Not fatal: the 1 Hz poll still works, and converge() retries the
             # proxy. Losing only the signal costs latency, not correctness.
