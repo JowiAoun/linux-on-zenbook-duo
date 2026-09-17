@@ -118,6 +118,7 @@ INTERNAL = (displayctl.TOP, displayctl.BOTTOM)
 
 DUO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                     "..", "bin", "duo-cli"))
+HELPER = "/usr/local/sbin/zenduo-helper"   # what `duo layout login` runs through sudo
 
 
 def remembering():
@@ -154,6 +155,8 @@ class Watcher:
         self._record_timer = 0
         self._announced_memory_error = False
         self._children = []     # backgrounded sync-backlight runs, reaped by the poll
+        self._login_pushes = []  # the `duo layout login` runs among them, checked on exit
+        self._helper_stale_at = None  # mtime of a helper that could not do it (None = fine)
         self._subscribe = False  # run() sets it: every proxy gets the signal handler
         self.loop = GLib.MainLoop()
 
@@ -249,24 +252,54 @@ class Watcher:
             self.push_login_screen()
         return GLib.SOURCE_REMOVE
 
+    @staticmethod
+    def helper_mtime():
+        try:
+            return os.stat(HELPER).st_mtime
+        except OSError:
+            return 0.0  # missing: still a state that a reinstall changes
+
     def push_login_screen(self):
         """Give the greeter the same layouts, so the password prompt follows.
 
         Best effort and never blocking: it needs the root helper, and a
         machine without it (or without GDM) must still get everything else.
         stderr is inherited so an unexpected failure lands in the journal.
+
+        A helper that is missing or too old (exit 64) is tried once, then left
+        alone until the file changes: retrying on every layout change logged
+        the same line each time, and a sudo call with it.
         """
         if os.environ.get("ZENDUO_LOGIN_SCREEN_LAYOUT", "1") != "1":
             return
         if monitors_xml.gdm_monitors_path() is None:
             return
+        if self._helper_stale_at is not None:
+            if self.helper_mtime() == self._helper_stale_at:
+                return
+            self._helper_stale_at = None
+            log("the root helper changed; trying the login screen layout again")
         try:
             # stdout and stderr are inherited, which under the unit is the
             # journal: `duo layout login` says one line and only on failure.
-            self._children.append(subprocess.Popen(
-                [DUO, "layout", "login", "--quiet"], start_new_session=True))
+            proc = subprocess.Popen([DUO, "layout", "login", "--quiet"], start_new_session=True)
         except OSError as e:
             log(f"could not update the login screen layout: {e}")
+            return
+        self._children.append(proc)
+        self._login_pushes.append(proc)
+
+    def reap_children(self):
+        self._children = [c for c in self._children if c.poll() is None]
+        still = []
+        for proc in self._login_pushes:
+            if proc.poll() is None:
+                still.append(proc)
+            elif proc.returncode == 64 and self._helper_stale_at is None:
+                self._helper_stale_at = self.helper_mtime()
+                log("login screen layout: the root helper is missing or too old for it; "
+                    "not trying again until it is reinstalled (sudo ./install.sh --system)")
+        self._login_pushes = still
 
     def restore_remembered(self, serial, monitors, logical_raw, properties):
         """Put this monitor set's remembered layout back. True if it applied."""
@@ -306,7 +339,7 @@ class Watcher:
         return True
 
     def poll_keyboard(self):
-        self._children = [c for c in self._children if c.poll() is None]
+        self.reap_children()
         raw = dock.keyboard_docked()
         if raw == self._raw:
             self._streak += 1

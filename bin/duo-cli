@@ -762,13 +762,15 @@ cmd_layout_login() {
   [ "${1:-}" = --quiet ] && args+=(--quiet)
   if [ ! -x "$HELPER" ]; then
     log "login screen layout not updated: the root helper is missing ($HELPER) — run: sudo ./install.sh --system"
-    return 1
+    return 64
   fi
+  # 64 and 66 are passed through: the daemon stops retrying a helper that is
+  # too old (64) until it is reinstalled, and keeps retrying the rest.
   out="$(sudo -n "$HELPER" login-layout "${args[@]}" 2>&1)" && rc=0 || rc=$?
   if [ "$rc" != 0 ]; then
     case "$rc" in
-      64) log "login screen layout not updated: the installed root helper does not know 'login-layout' — run: sudo ./install.sh --system" ;;
-      66) log "login screen layout not updated: nothing to install yet, or this machine's login screen is not GDM's" ;;
+      64) log "login screen layout not updated: the installed root helper does not know 'login-layout' — run: sudo ./install.sh --system"; return 64 ;;
+      66) log "login screen layout not updated: nothing to install yet, or this machine's login screen is not GDM's"; return 66 ;;
       *)  log "login screen layout not updated (rc=$rc): ${out%%$'\n'*}" ;;
     esac
     return 1

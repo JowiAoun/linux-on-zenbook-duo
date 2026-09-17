@@ -41,6 +41,37 @@ class ProxyResubscribeTest(unittest.TestCase):
             self.assertIsNot(second, first)
             self.assertEqual([s for s, _h in second.connected], ["g-signal"])
 
+    def test_a_stale_helper_is_tried_once_until_it_changes(self):
+        # The installed helper predates login-layout (exit 64). One push, one
+        # line; then nothing until the file's mtime changes (a reinstall).
+        import tempfile
+
+        class FakeProc:
+            returncode = 64
+
+            def poll(self):
+                return 64
+        calls = []
+        w = watch_displays.Watcher()
+        with tempfile.TemporaryDirectory() as d:
+            helper = os.path.join(d, "zenduo-helper")
+            with open(helper, "w") as f:
+                f.write("#!/bin/sh\n")
+            os.utime(helper, (1000, 1000))
+            with mock.patch.object(watch_displays, "HELPER", helper), \
+                 mock.patch.object(watch_displays.monitors_xml, "gdm_monitors_path", lambda: "/x"), \
+                 mock.patch.object(watch_displays.subprocess, "Popen",
+                                   lambda *a, **k: (calls.append(a), FakeProc())[1]), \
+                 mock.patch.dict(os.environ, {"ZENDUO_LOGIN_SCREEN_LAYOUT": "1"}):
+                w.push_login_screen()
+                w.reap_children()
+                w.push_login_screen()
+                w.push_login_screen()
+                self.assertEqual(len(calls), 1, "no retry while the helper is unchanged")
+                os.utime(helper, (2000, 2000))
+                w.push_login_screen()
+                self.assertEqual(len(calls), 2, "a reinstalled helper is tried again")
+
     def test_no_subscription_outside_the_daemon(self):
         # --once has no main loop; a handler on its proxy would never fire.
         w = watch_displays.Watcher()

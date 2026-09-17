@@ -20,6 +20,14 @@
 
 ### Fixes
 
+- `watch-fn` no longer reports "media keys are dead" while the keyboard is
+  re-enumerating: it waits for the node set to hold still before sending the
+  handshake, names a set that vanished under it, and only raises the alarm
+  from the third failed attempt (the first ones after a dock routinely fail
+  until the udev rule lands)
+- `watch-displays` pushes the login screen layout to a missing or outdated
+  root helper once, then leaves it alone until the helper file changes,
+  instead of one journal line and one sudo call per layout change
 - `duo-cli doctor` and the amp reporter no longer call the speaker amps
   "clean" when the kernel journal is not readable; doctor's kernel log scan
   now reads the journal when `dmesg` is root-only
