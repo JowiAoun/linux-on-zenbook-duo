@@ -73,7 +73,7 @@ while [ $# -gt 0 ]; do
     --apply-method)      [ $# -ge 2 ] || die "--apply-method needs temporary|persistent"; APPLY_METHOD="$2"; USER_FLAGS+=(--apply-method "$2"); shift ;;
     --speaker-dsp)       SPEAKER_DSP=1; USER_FLAGS+=("$1") ;;
     --no-speaker-dsp)    SPEAKER_DSP=0; USER_FLAGS+=("$1") ;;
-    -h|--help)           sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)           sed -n '2,/^[^#]/{/^[^#]/!p}' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
   shift

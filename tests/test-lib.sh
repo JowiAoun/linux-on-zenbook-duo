@@ -233,11 +233,15 @@ fails "--battery-limit out of range is refused" plan --battery-limit 10
 fails "--apply-method never is refused"        plan --apply-method never
 fails "an unknown flag is refused"             plan --bogus
 succeeds "--help exits 0"                      ./install.sh --help
+# The help is the header comment; a fixed line range printed code once the
+# header grew past it (2026-09-16: six lines of bash after the last flag).
+is "--help prints the header only, no code"   "$(./install.sh --help | grep -c 'set -euo')" 0
 
 group "uninstall.sh argument plumbing"
 is "--prefix without a value is a usage error (64), not an unbound variable" "$(./uninstall.sh --prefix >/dev/null 2>&1; echo $?)" 64
 is "an unknown flag is a usage error (64)"     "$(./uninstall.sh --bogus >/dev/null 2>&1; echo $?)" 64
 succeeds "--help exits 0"                      ./uninstall.sh --help
+is "--help prints the header only, no code"   "$(./uninstall.sh --help | grep -c 'set -euo')" 0
 
 # ── summary ──────────────────────────────────────────────────────────────────
 printf '\n%s\n' "────────────────────────────────────────"
