@@ -156,6 +156,10 @@ is "conf_set rewrites in place"           "$(conf_get BATTERY_LIMIT)" "80"
 is "conf_set keeps one line for the key"  "$(grep -c '^BATTERY_LIMIT' "$ZENDUO_CONF")" "1"
 conf_set NEW_KEY value
 is "conf_set appends an unknown key"      "$(conf_get NEW_KEY)" "value"
+# "/" is a legal value character (conf_get's allow-list) and was also the sed
+# delimiter, so this used to fail with "unknown option to `s'".
+conf_set BACKLIGHT_TARGET card1/eDP-2
+is "conf_set accepts a value with a slash" "$(conf_get BACKLIGHT_TARGET)" "card1/eDP-2"
 fails "conf_set refuses metacharacters"   conf_set APPLY_METHOD 'x;y'
 rm -f "$ZENDUO_CONF"
 conf_set APPLY_METHOD temporary

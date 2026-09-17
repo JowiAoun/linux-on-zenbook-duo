@@ -85,8 +85,10 @@ conf_set() { # <KEY> <VALUE>
   fi
   if grep -qE "^[[:space:]]*#?[[:space:]]*${key}[[:space:]]*=" "$f"; then
     # Replace the first (possibly commented-out) occurrence in place, so the
-    # explanatory comment above it keeps describing the setting.
-    sed -i -E "0,/^[[:space:]]*#?[[:space:]]*${key}[[:space:]]*=.*/s//${key}=${val}/" "$f"
+    # explanatory comment above it keeps describing the setting. The empty
+    # pattern reuses the address regex; "|" delimits because "/" is a legal
+    # value character and broke the substitution.
+    sed -i -E "0,/^[[:space:]]*#?[[:space:]]*${key}[[:space:]]*=.*/s||${key}=${val}|" "$f"
   else
     printf '%s=%s\n' "$key" "$val" >> "$f"
   fi
