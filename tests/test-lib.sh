@@ -182,6 +182,24 @@ is "login-layout rejects a non-numeric uid"     "$(SUDO_UID=nobody ./helper/zend
 # 4294967295 is (uid_t)-1: getent never resolves it, on any machine.
 is "login-layout needs a uid with a home"       "$(SUDO_UID=4294967295 ./helper/zenduo-helper login-layout >/dev/null 2>&1; echo $?)" 66
 
+# ── the amp reporter, extracted from the script that installs it ─────────────
+# Its verdict feeds `duo doctor`. A user outside the adm group gets no kernel
+# journal, and counting zero hits in nothing used to read as "clean".
+group "duo-cs35l41-check"
+chk_dir="$(mktemp -d)"
+sed -n "/^cat > \"\$tmp_check\" <<'CHECK'\$/,/^CHECK\$/p" system/46-speaker-amp.sh | sed '1d;$d' > "$chk_dir/duo-cs35l41-check"
+chmod +x "$chk_dir/duo-cs35l41-check"
+is "the reporter was extracted" "$(grep -c '^PATTERN=' "$chk_dir/duo-cs35l41-check")" 1
+fake_kernel_journal() { # <fail|clean|bad>: what `journalctl -k -b` will do
+  printf '#!/usr/bin/env bash\ncase %s in fail) exit 1 ;; clean) echo "usb 1-1: new device" ;; bad) echo "cs35l41-hda: Failed waiting for CS35L41_PUP_DONE_MASK: -110" ;; esac\n' "$1" > "$chk_dir/journalctl"
+  chmod +x "$chk_dir/journalctl"
+}
+check_rc() { ( PATH="$chk_dir:$PATH" duo-cs35l41-check >/dev/null 2>&1 ); echo $?; }
+fake_kernel_journal fail;  is "an unreadable kernel journal is 'cannot tell' (2), not clean" "$(check_rc)" 2
+fake_kernel_journal clean; is "a clean boot exits 0"                                        "$(check_rc)" 0
+fake_kernel_journal bad;   is "the PUP_DONE timeout exits 1"                                "$(check_rc)" 1
+rm -rf "$chk_dir"
+
 # ── nix_managed ──────────────────────────────────────────────────────────────
 group "nix_managed"
 nm_dir="$(mktemp -d)"

@@ -124,7 +124,8 @@ cat > "$tmp_check" <<'CHECK'
 # Installed by linux-on-zenbook-duo's system/46-speaker-amp.sh. See that file for why this
 # only reports: re-binding the driver to repair it makes the sound card worse.
 #
-#   duo-cs35l41-check            report on this boot; exit 1 if affected
+#   duo-cs35l41-check            report on this boot; exit 1 if affected,
+#                                2 if the kernel journal is not readable
 #   duo-cs35l41-check --watch    report now, then keep watching the kernel log
 set -euo pipefail
 
@@ -134,12 +135,18 @@ DUO_USER='@TARGET_USER@'
 
 log() { printf 'duo-cs35l41-check: %s\n' "$*"; }
 
-# `grep -q` would exit at the first match, SIGPIPE journalctl, and — under
-# `set -o pipefail` — make the whole pipeline report failure on the one input
-# that should return success. Count instead, so the reader drains its input.
+# 0 = the amps failed this boot, 1 = clean, 2 = cannot tell.
+#
+# Captured, then counted: `journalctl | grep -q` would exit at the first match,
+# SIGPIPE journalctl and, under pipefail, report failure on the one input that
+# should succeed. The capture also keeps a permission failure visible: a user
+# outside the adm group gets no kernel journal at all, and counting zero hits
+# in an empty stream used to read as "powered up cleanly".
 affected() {
-  local hits
-  hits="$(journalctl -k -b --no-pager 2>/dev/null | grep -c "$PATTERN" || true)"
+  local out hits
+  out="$(journalctl -k -b --no-pager 2>/dev/null)" || return 2
+  [ -n "$out" ] || return 2   # a booted kernel always has journal lines
+  hits="$(grep -c "$PATTERN" <<<"$out" || true)"
   [ "${hits:-0}" -gt 0 ]
 }
 
@@ -201,11 +208,12 @@ watch_journal() {
 case "${1:-}" in
   --watch) watch_journal ;;
   "")
-    if affected; then
-      report
-      exit 1
-    fi
-    log "amplifiers powered up cleanly this boot"
+    rc=0; affected || rc=$?
+    case "$rc" in
+      0) report; exit 1 ;;
+      2) log "cannot read the kernel journal as this user (join the adm group, or run with sudo)"; exit 2 ;;
+      *) log "amplifiers powered up cleanly this boot" ;;
+    esac
     ;;
   *) echo "usage: duo-cs35l41-check [--watch]" >&2; exit 2 ;;
 esac

@@ -453,11 +453,13 @@ cmd_doctor() {
     ck FAIL 0 "no sound cards registered — 'dummy output' likely (V11: firmware-sof-signed + kernel)"
   fi
   if [ -x /usr/local/sbin/duo-cs35l41-check ]; then
-    if /usr/local/sbin/duo-cs35l41-check >/dev/null 2>&1; then
-      ck PASS 0 "CS35L41 speaker amps powered up cleanly this boot"
-    else
-      ck WARN 0 "CS35L41 amps FAILED their power-up handshake this boot — sound is unprotected/distorted; full power-off fixes it (see docs/HARDWARE.md)"
-    fi
+    local amp_rc=0
+    /usr/local/sbin/duo-cs35l41-check >/dev/null 2>&1 || amp_rc=$?
+    case "$amp_rc" in
+      0) ck PASS 0 "CS35L41 speaker amps powered up cleanly this boot" ;;
+      1) ck WARN 0 "CS35L41 amps FAILED their power-up handshake this boot — sound is unprotected/distorted; full power-off fixes it (see docs/HARDWARE.md)" ;;
+      *) ck INFO 0 "CS35L41 amp state unknown: the kernel journal is not readable as this user (join the adm group, or re-run with sudo)" ;;
+    esac
   fi
 
   echo
@@ -522,17 +524,21 @@ cmd_doctor() {
 
   echo
   echo "-- kernel log scan --"
-  if dmesg >/dev/null 2>&1; then
+  # dmesg needs root once kernel.dmesg_restrict is on (Ubuntu's default); the
+  # kernel journal only needs the adm group, so try that before giving up.
+  local klog
+  klog="$(dmesg 2>/dev/null || journalctl -k -b -o cat --no-pager 2>/dev/null || true)"
+  if [ -n "$klog" ]; then
     local bad
-    bad="$(dmesg 2>/dev/null | grep -iE '(i915|asus|sof|cs35l41).*(error|fail|timeout)' | tail -n 5 || true)"
+    bad="$(grep -iE '(i915|asus|sof|cs35l41).*(error|fail|timeout)' <<<"$klog" | tail -n 5 || true)"
     if [ -n "$bad" ]; then
-      ck WARN 0 "suspicious dmesg lines (last 5):"
+      ck WARN 0 "suspicious kernel log lines (last 5):"
       printf '%s\n' "$bad" | sed 's/^/         /'
     else
-      ck PASS 0 "no i915/asus/sof/cs35l41 errors in dmesg"
+      ck PASS 0 "no i915/asus/sof/cs35l41 errors in the kernel log"
     fi
   else
-    ck INFO 0 "dmesg not readable as this user — re-run with sudo for the log scan"
+    ck INFO 0 "neither dmesg nor the kernel journal is readable as this user — re-run with sudo for the log scan"
   fi
 
   echo
