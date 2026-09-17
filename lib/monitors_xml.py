@@ -229,9 +229,13 @@ class Store:
         for i, existing in enumerate(self.configurations):
             if existing.key() != key:
                 continue
+            # Carry over BEFORE comparing. A fresh snapshot never has the
+            # maxbpc/presentation bits, so compared raw it differed from an
+            # entry that had them on every settle: "remembered" was logged and
+            # the login screen pushed for a file that did not change.
+            _carry_over(existing, config)
             if render_configuration(existing) == render_configuration(config):
                 return False
-            _carry_over(existing, config)
             self.configurations[i] = config
             return True
         self.configurations.append(config)

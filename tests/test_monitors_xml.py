@@ -301,6 +301,18 @@ class StoreOperations(unittest.TestCase):
         self.assertEqual(kept.monitors[0].extras, ["<maxbpc>12</maxbpc>"])
         self.assertIn("<maxbpc>12</maxbpc>", mx.render(store))
 
+    def test_replace_is_a_no_op_when_only_carried_over_bits_differ(self):
+        # A snapshot never carries maxbpc/presentation (GetCurrentState does
+        # not expose them), so compared raw it differed from the stored entry
+        # on every settle and "remembered" was logged for an unchanged file.
+        old = self.config_for(["eDP-1", "HDMI-1"], ["eDP-1"])
+        old.logicals[0].presentation = True
+        old.logicals[0].monitors[0].extras = ["<maxbpc>12</maxbpc>"]
+        store = mx.Store([old])
+        before = mx.render(store)
+        self.assertFalse(store.replace(self.config_for(["eDP-1", "HDMI-1"], ["eDP-1"])))
+        self.assertEqual(mx.render(store), before)
+
     def test_forget_removes_only_the_matching_set(self):
         a = self.config_for(["eDP-1"], ["eDP-1"])
         b = self.config_for(["eDP-1", "HDMI-1"], ["HDMI-1"])
