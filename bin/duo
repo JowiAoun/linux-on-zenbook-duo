@@ -26,16 +26,24 @@ CLI = os.path.join(HERE, "duo-cli")
 SCREEN_FLAGS = ("--snapshot", "--ascii")
 
 
+def run_cli(args):
+    """Replace this process with the CLI, so the exit code and the output are
+    its own. It only returns when there is no CLI to run."""
+    try:
+        os.execv(CLI, [CLI] + args)
+    except OSError as e:
+        print(f"duo: cannot run {CLI}: {e}", file=sys.stderr)
+        return 127
+
+
 def main(argv):
     if argv and argv[0] in ("-h", "--help"):
         print(__doc__.strip())
         return 0
     if argv and argv[0] in ("--version", "version"):
-        os.execv(CLI, [CLI, "version"])
+        return run_cli(["version"])
     if argv and argv[0] not in SCREEN_FLAGS:
-        # A command: hand everything to the CLI, replacing this process so the
-        # exit code and the output are the CLI's own.
-        os.execv(CLI, [CLI] + argv)
+        return run_cli(argv)
     sys.path.insert(0, os.path.join(ROOT, "lib"))
     import duo_tui
     return duo_tui.main(argv)
