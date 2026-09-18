@@ -5,6 +5,7 @@ those tools print, so a change in what the screen shows is caught here."""
 
 import os
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
@@ -177,6 +178,48 @@ class ValidateTest(unittest.TestCase):
         # lib/conf.sh ignores a value with any other character, so the screen
         # must refuse it before duo-cli would.
         self.assertNotEqual(dm.validate(dm.KNOB_BY_KEY["BACKLIGHT_SOURCE"], "x;rm -rf /"), "")
+
+
+class ClearTest(unittest.TestCase):
+    """`c` on the screen hides what has been read; journald keeps it."""
+
+    def model(self):
+        m = dm.Model()
+        now = time.time()
+        m.entries.extend([
+            dm.Entry(now - 10, "watch-fn: hotkey mode not confirmed", 5, "duo-watch-fn.service"),
+            dm.Entry(now - 5, "watch-displays: keyboard docked", 5, "duo-watch-displays.service"),
+        ])
+        m.kernel_entries = [dm.Entry(now - 8, "cs35l41-hda: Failed waiting", 3, "kernel")]
+        return m
+
+    def test_clear_hides_everything_read_so_far(self):
+        m = self.model()
+        self.assertEqual(m.clear_journal(), 3)
+        self.assertEqual(m.journal(), [])
+        self.assertEqual(m.journal(kernel=True), [])
+        self.assertEqual(m.recent_problems(), [])
+
+    def test_a_line_that_arrives_after_the_clear_still_shows(self):
+        m = self.model()
+        m.clear_journal()
+        m.entries.append(dm.Entry(time.time() + 1, "watch-fn: hotkey mode not confirmed",
+                                  5, "duo-watch-fn.service"))
+        self.assertEqual(len(m.journal()), 1)
+        self.assertEqual(len(m.recent_problems()), 1)
+
+    def test_a_re_read_of_the_backlog_does_not_bring_them_back(self):
+        m = self.model()
+        m.clear_journal()
+        m.entries.appendleft(dm.Entry(time.time() - 60, "watch-fn: old news", 5, "duo-watch-fn.service"))
+        self.assertEqual(m.journal(), [])
+
+    def test_show_all_undoes_it(self):
+        m = self.model()
+        m.clear_journal()
+        m.show_all()
+        self.assertEqual(len(m.journal()), 2)
+        self.assertEqual(len(m.journal(kernel=True)), 1)
 
 
 class ResultTest(unittest.TestCase):

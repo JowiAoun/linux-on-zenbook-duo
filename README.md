@@ -181,7 +181,9 @@ Six views, picked with `1`-`6` or Tab:
 - **Overview**: panels, keyboard, dock policy, backlights, battery limit,
   speaker amps, every daemon's state, and the last warnings and errors from
   the journal. `k` sets the keyboard backlight, `b` the battery limit,
-  `a` enforces the dock policy once, `R` restarts the daemons.
+  `a` enforces the dock policy once, `R` restarts the daemons. The problem
+  list takes the arrow keys and Enter; `l` opens the same lines in Logs and
+  `c` clears them.
 - **Services**: each feature with its unit state, restart count and last exit
   code, and the recent errors from that unit alone. `e` enable, `d` disable,
   `r` restart, `s` start or stop, `l` its logs. System features show the
@@ -193,7 +195,9 @@ Six views, picked with `1`-`6` or Tab:
   and the panel and layout verbs.
 - **Doctor**: `duo-cli doctor` coloured, with a problems-only filter.
 - **Logs**: the zenduo journal live, per unit or all, errors only, filtered,
-  plus the kernel's Duo-related lines. Enter opens an entry in full.
+  plus the kernel's Duo-related lines. Enter opens an entry in full. `c` hides
+  everything on screen, here and on Overview, and `C` brings it back; the
+  journal itself is journald's and duo only reads it.
 
 Every action is a `duo-cli` or `systemctl --user` command; the status line
 shows what it printed and a failure opens the full output. `?` lists the keys

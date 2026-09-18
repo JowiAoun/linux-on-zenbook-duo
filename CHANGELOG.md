@@ -20,6 +20,19 @@
 
 ### Fixes
 
+- `c` in the screen's Logs clears the view: it hides every line showing there
+  and under Recent problems, and `C` brings them back. It used to clear the
+  filter, which looked like nothing happened. Nothing is deleted; the journal
+  belongs to journald and duo only reads it
+- the rest of the screen's keys: a box scrolls to its last line (a wrapped
+  line takes several rows, so the help and a long failure stopped part way),
+  PgUp and PgDn step the list that is really on screen, Overview's problem
+  list takes the arrow keys and Enter, `l` there opens the same lines in Logs,
+  space edits any setting and not only a 0/1 one, and Services says where a
+  system unit's journal is instead of switching to an empty Logs view
+- the screen stops asking Mutter for the display state once you leave the
+  Displays view, and copying the journal while the follower appends to it can
+  no longer raise
 - `watch-fn` no longer reports "media keys are dead" while the keyboard is
   re-enumerating: it waits for the node set to hold still before sending the
   handshake, names a set that vanished under it, and only raises the alarm

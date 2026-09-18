@@ -61,6 +61,16 @@ def stub_model():
     return m
 
 
+def quiet_model():
+    """The stub with every action replaced, so a key press cannot run a command."""
+    m = stub_model()
+    for name in ("enable", "disable", "restart", "start_stop", "config_set", "panels", "layout",
+                 "apply_displays", "kb_backlight", "bat_limit", "speaker_dsp", "login_layout",
+                 "refresh_all", "refresh_slow", "refresh_fast", "refresh_kernel", "run_doctor_async"):
+        setattr(m, name, lambda *a, _n=name, **kw: dm.Result(True, _n, "first line\nsecond line"))
+    return m
+
+
 def app_for(model=None, ascii_only=True):
     return tui.App(model or stub_model(), tui.Theme(), ascii_only=ascii_only)
 
@@ -237,6 +247,73 @@ class KeysTest(unittest.TestCase):
         logs.set_filter("")
         self.assertEqual(len(logs.entries()), 2)
 
+    def test_c_clears_the_log_view_and_C_brings_it_back(self):
+        app = app_for()
+        app.current = "Logs"
+        logs = app.views["Logs"]
+        self.assertEqual(len(logs.entries()), 3)
+        app.handle_key(ord("c"))
+        self.assertEqual(logs.entries(), [])
+        self.assertIn("journald still has them", app.status[0])
+        self.assertIn("cleared", app.render_text(100, 30))
+        app.model.entries.append(dm.Entry(time.time() + 1, "watch-fn: a line after the clear",
+                                          5, "duo-watch-fn.service", "zenduo", "9"))
+        self.assertEqual(len(logs.entries()), 1)
+        app.handle_key(ord("C"))
+        self.assertEqual(len(logs.entries()), 4)
+
+    def test_clearing_hides_the_problems_on_overview_too(self):
+        app = app_for()
+        self.assertIn("hotkey mode not confirmed", app.render_text(110, 34))
+        app.handle_key(ord("c"))
+        text = app.render_text(110, 34)
+        self.assertNotIn("hotkey mode not confirmed", text)
+        self.assertIn("none since you cleared", text)
+
+    def test_overview_walks_its_problems_and_opens_one(self):
+        app = app_for()
+        app.handle_key(tui.KEY_UP)
+        app.handle_key(10)
+        self.assertIsInstance(app.modal, tui.Notice)
+        self.assertIn("priority 5", app.render_text(100, 30))
+
+    def test_overview_l_opens_the_same_lines_in_logs(self):
+        app = app_for()
+        app.handle_key(ord("l"))
+        self.assertEqual(app.current, "Logs")
+        self.assertTrue(app.views["Logs"].errors_only)
+
+    def test_a_long_notice_scrolls_to_its_last_line(self):
+        # A wrapped line takes several rows, so paging by the raw line count
+        # stopped short of the end.
+        app = app_for()
+        app.notice("Long", [f"line {i}: " + "x " * 40 for i in range(8)])
+        for _ in range(20):
+            app.handle_key(tui.KEY_NPAGE)
+        self.assertIn("line 7:", app.render_text(60, 16))
+
+    def test_settings_space_opens_the_editor_of_a_knob_that_is_not_a_switch(self):
+        app = app_for()
+        app.current = "Settings"
+        app.views["Settings"].cur.i = 0      # APPLY_METHOD, an enum
+        app.handle_key(ord(" "))
+        self.assertIsInstance(app.modal, tui.Menu)
+
+    def test_services_says_where_a_system_units_journal_is(self):
+        app = app_for()
+        app.current = "Services"
+        app.views["Services"].cur.i = [f.name for f in dm.FEATURES].index("amp-check")
+        app.handle_key(ord("l"))
+        self.assertEqual(app.current, "Services")     # not a jump to an empty Logs
+        self.assertIn("journalctl -u duo-cs35l41-check.service -b", app.render_text(100, 30))
+
+    def test_leaving_displays_stops_the_mutter_poll(self):
+        app = app_for()
+        app.switch("Displays")
+        self.assertTrue(app.model._wanted["displays"])
+        app.switch("Overview")
+        self.assertFalse(app.model._wanted["displays"])
+
     def test_settings_space_flips_a_bool_through_the_model(self):
         app = app_for()
         calls = []
@@ -247,6 +324,35 @@ class KeysTest(unittest.TestCase):
         self.assertEqual(calls, [("DOCK_POLICY", "0")])
         # the daemon that reads it is running, so a restart is offered
         self.assertIsInstance(app.modal, tui.Confirm)
+
+
+class EveryKeyTest(unittest.TestCase):
+    """Press everything, everywhere, at three terminal sizes. Actions are
+    stubbed, so this only asks one question: does anything raise."""
+
+    KEYS = ([c for c in range(32, 127)] +
+            [tui.KEY_UP, tui.KEY_DOWN, tui.KEY_LEFT, tui.KEY_RIGHT, tui.KEY_PPAGE, tui.KEY_NPAGE,
+             tui.KEY_HOME, tui.KEY_END, tui.KEY_DC, tui.KEY_TAB, tui.KEY_BTAB, tui.KEY_ESC,
+             tui.KEY_RESIZE, 10, 13, 263])
+    SIZES = ((100, 30), (70, 24), (55, 14))
+
+    def test_no_key_raises_in_any_view(self):
+        for name in tui.App(quiet_model(), tui.Theme()).order:
+            for ch in self.KEYS:
+                app = app_for(quiet_model())
+                app.current = name
+                app.views[name].on_show()
+                with self.subTest(view=name, key=ch):
+                    app.handle_key(ch)
+                    for w, h in self.SIZES:
+                        app.render_text(w, h)
+                    # and again inside whatever box that opened
+                    for second in (tui.KEY_DOWN, tui.KEY_NPAGE, ord("y"), 10, tui.KEY_ESC):
+                        if app.modal is None:
+                            break
+                        app.handle_key(second)
+                        for w, h in self.SIZES:
+                            app.render_text(w, h)
 
 
 @unittest.skipUnless(tui.curses is not None and hasattr(os, "forkpty"), "needs curses and a pty")
@@ -276,7 +382,7 @@ class RealTerminalTest(unittest.TestCase):
                     except OSError:
                         return
         drain(3.0)
-        for key in (b"2", b"3", b"4", b"?", b"\x1b", b"6", b"1"):
+        for key in (b"2", b"3", b"4", b"?", b"\x1b", b"6", b"c", b"C", b"1"):
             os.write(fd, key)
             drain(0.7)
         os.write(fd, b"q")

@@ -460,9 +460,10 @@ class Glance:
 
     @property
     def keyboard_text(self):
-        return {"docked": "docked (USB, on the pogo pins)",
-                "undocked": "undocked (or Bluetooth)",
-                "dead": "on the pins but its USB link is DEAD: lift it off and re-seat it"}[self.keyboard]
+        known = {"docked": "docked (USB, on the pogo pins)",
+                 "undocked": "undocked (or Bluetooth)",
+                 "dead": "on the pins but its USB link is DEAD: lift it off and re-seat it"}
+        return known.get(self.keyboard, self.keyboard)
 
 
 def read_glance():
@@ -603,6 +604,7 @@ class Model:
         self.displays, self.layout_lines, self.displays_error = None, [], ""
         self.entries = collections.deque(maxlen=4000)
         self.journal_error = ""
+        self.cleared_at = 0.0  # lines up to here are hidden from the screen
         self.kernel_entries = []
         self.kernel_error = ""
         self.doctor_lines, self.doctor_ok, self.doctor_running = [], None, False
@@ -639,7 +641,8 @@ class Model:
             self.displays, self.layout_lines, self.displays_error = read_displays()
         entries, self.journal_error = read_journal()
         if entries:
-            self.entries = collections.deque(entries, maxlen=self.entries.maxlen)
+            with self._lock:
+                self.entries = collections.deque(entries, maxlen=self.entries.maxlen)
         self.bump()
 
     def refresh_all(self):
@@ -673,7 +676,7 @@ class Model:
                 else:
                     self.refresh_fast()
             except Exception as e:  # a reader must never take the screen down
-                self.errors.append(f"refresh: {e!r}")
+                self.errors = (self.errors + [f"refresh: {e!r}"])[-20:]
                 self.bump()
             self._stop.wait(self.FAST_SECONDS)
 
@@ -686,7 +689,8 @@ class Model:
                 break
             e = parse_journal_line(line)
             if e is not None:
-                self.entries.append(e)
+                with self._lock:
+                    self.entries.append(e)
                 self.bump()
 
     def stop(self):
@@ -732,9 +736,34 @@ class Model:
                 stalled += 1
         return running, failed, stalled
 
+    def journal(self, kernel=False):
+        """The lines the screen shows: what was read, minus what `c` cleared."""
+        with self._lock:      # the follow thread is appending to that deque
+            src = list(self.kernel_entries if kernel else self.entries)
+        if self.cleared_at:
+            src = [e for e in src if e.ts > self.cleared_at]
+        return src
+
+    def clear_journal(self):
+        """Hide every line already on screen, and answer how many that was.
+
+        The journal itself is untouched: forgetting lines is journald's job and
+        needs root, and a viewer has no business rewriting a log. So this is a
+        cutoff in wall-clock time. A line that arrives after it still shows,
+        and the six-second re-read of the backlog does not bring the old ones
+        back. show_all() drops the cutoff."""
+        hidden = len(self.journal()) + len(self.journal(kernel=True))
+        self.cleared_at = time.time()
+        self.bump()
+        return hidden
+
+    def show_all(self):
+        self.cleared_at = 0.0
+        self.bump()
+
     def recent_problems(self, n=8, unit=None):
         out = []
-        for e in reversed(self.entries):
+        for e in reversed(self.journal()):
             if unit and e.unit != unit:
                 continue
             if e.level in ("err", "warn"):

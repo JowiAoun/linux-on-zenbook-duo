@@ -45,6 +45,9 @@ KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT = 259, 258, 260, 261
 KEY_PPAGE, KEY_NPAGE, KEY_HOME, KEY_END, KEY_DC = 339, 338, 262, 360, 330
 KEY_RESIZE = 410
 
+MOVE_KEYS = (KEY_UP, KEY_DOWN, KEY_PPAGE, KEY_NPAGE, KEY_HOME, KEY_END,
+             ord("j"), ord("k"), ord("g"), ord("G"))
+
 
 # ── glyphs, with an ASCII fallback for a terminal that cannot draw them ──────
 
@@ -209,9 +212,11 @@ class Theme:
 class Cursor:
     def __init__(self):
         self.i, self.top = 0, 0
+        self.h = 10            # rows that fit; render() corrects it every frame
 
     def clamp(self, n, h):
         h = max(1, h)
+        self.h = h
         self.i = max(0, min(self.i, n - 1)) if n else 0
         if self.i < self.top:
             self.top = self.i
@@ -219,7 +224,8 @@ class Cursor:
             self.top = self.i - h + 1
         self.top = max(0, min(self.top, max(0, n - h)))
 
-    def key(self, ch, n, h):
+    def key(self, ch, n, h=None):
+        h = max(1, h or self.h)
         if ch in (KEY_UP, ord("k")):
             self.i -= 1
         elif ch in (KEY_DOWN, ord("j")):
@@ -241,15 +247,18 @@ class Cursor:
 class Scroll:
     def __init__(self):
         self.top, self.follow = 0, True
+        self.n, self.h = 0, 8  # what was drawn last frame; see Cursor above
 
     def clamp(self, n, h):
         h = max(1, h)
+        self.n, self.h = n, h
         if self.follow:
             self.top = max(0, n - h)
         self.top = max(0, min(self.top, max(0, n - h)))
 
-    def key(self, ch, n, h):
-        before = self.top
+    def key(self, ch, n=None, h=None):
+        n = self.n if n is None else n
+        h = max(1, h or self.h)
         if ch in (KEY_UP, ord("k")):
             self.top -= 1
         elif ch in (KEY_DOWN, ord("j")):
@@ -266,7 +275,7 @@ class Scroll:
             return False
         self.follow = self.top >= n - h
         self.top = max(0, min(self.top, max(0, n - h)))
-        return self.top != before or True
+        return True
 
 
 # ── modals ───────────────────────────────────────────────────────────────────
@@ -329,7 +338,7 @@ class Notice(Modal):
         for line in self.lines:
             body.extend(wrap(line, width))
         inner = self.frame(app, cv, r, min(len(body), r.h - 4), width)
-        self.scroll.clamp(len(body), inner.h)
+        self.scroll.clamp(len(body), inner.h)   # also what handle() pages by
         for i, line in enumerate(body[self.scroll.top:self.scroll.top + inner.h]):
             cv.put(inner.y + i, inner.x, line, app.t.level(self.level) if i == 0 and self.level != "info" else 0, inner.w)
         if len(body) > inner.h:
@@ -339,7 +348,7 @@ class Notice(Modal):
         if ch in (KEY_ESC, ord("q")) or ch in KEYS_ENTER:
             app.close_modal()
             return True
-        self.scroll.key(ch, len(self.lines) + 8, 8)
+        self.scroll.key(ch)
         return True
 
 
@@ -355,7 +364,7 @@ class Menu(Modal):
         lines = [f"{i[0]:<{label_w}}  {i[1]}" for i in self.items]
         width = min(max(len(line) for line in lines) + 2, max(30, r.w - 8))
         inner = self.frame(app, cv, r, min(len(lines), r.h - 4), width)
-        self.cur.clamp(len(lines), inner.h)
+        self.cur.clamp(len(lines), inner.h)     # also what handle() pages by
         for i, line in enumerate(lines[self.cur.top:self.cur.top + inner.h]):
             idx = self.cur.top + i
             attr = app.t.sel if idx == self.cur.i else 0
@@ -368,7 +377,7 @@ class Menu(Modal):
             app.close_modal()
             self.items[self.cur.i][2]()
         else:
-            self.cur.key(ch, len(self.items), 12)
+            self.cur.key(ch, len(self.items))
         return True
 
 
@@ -446,23 +455,43 @@ class View:
     def on_show(self):
         pass
 
+    def on_hide(self):
+        pass
+
     def render(self, cv, r):
         raise NotImplementedError
 
     def handle(self, ch):
         return False
 
+    def entry_notice(self, e):
+        """One journal line, in full, with everything journald knows about it."""
+        head = (f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(e.ts))}  {e.source}"
+                f"  pid {e.pid or '?'}  priority {e.pri}")
+        self.app.notice("Journal entry", [head, "", e.msg], e.level)
+
 
 class Overview(View):
     name = "Overview"
-    hint = "k kb-backlight  b battery limit  a apply dock policy  d doctor  R restart daemons"
+    hint = "k backlight  b battery  a dock policy  d doctor  l logs  c clear  R restart"
     help_lines = (
         "k        set the keyboard backlight level (0-3)",
         "b        set the battery charge limit and apply it now",
         "a        enforce the dock policy once (drops a manual layout override)",
         "d        open Doctor and run it",
+        "l        the same problems in Logs, errors only",
+        "c        clear: hide every problem listed here and in Logs (C brings them back)",
         "R        restart every running duo daemon",
+        "Up/Down  walk the problem list; Enter opens one in full, G returns to the newest",
     )
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.cur = Cursor()
+        self.follow = True     # stay on the newest problem until you move
+
+    def problems(self):
+        return self.m.recent_problems(n=400)
 
     def render(self, cv, r):
         m, t, g = self.m, self.app.t, self.app.g
@@ -494,7 +523,7 @@ class Overview(View):
         for name, st, en in gl.panels:
             attr = t.ok if en == "enabled" else (t.dim if st == "connected" else t.warn)
             row(f"panel {name}", f"{st}, {en}", attr)
-        kb_attr = {"docked": t.ok, "undocked": 0, "dead": t.err}[gl.keyboard]
+        kb_attr = {"docked": t.ok, "undocked": 0, "dead": t.err}.get(gl.keyboard, 0)
         row("keyboard", gl.keyboard_text, kb_attr)
         policy = m.config.get("DOCK_POLICY", "1")
         if policy != "1":
@@ -546,24 +575,43 @@ class Overview(View):
         row("root half", ", ".join(install), 0 if gl.helper and gl.udev else t.warn,
             "" if gl.helper and gl.udev else "sudo ./install.sh --system")
 
-        head("Recent problems")
-        problems = m.recent_problems(n=max(1, r.y + r.h - y))
+        cleared = time.strftime("%H:%M:%S", time.localtime(m.cleared_at)) if m.cleared_at else ""
+        head("Recent problems" + (f"   (cleared at {cleared}; C brings them back)" if cleared else ""))
+        avail = max(1, r.y + r.h - y)
+        problems = self.problems()
         if m.journal_error:
             cv.put(y, x, fit(f"journal: {m.journal_error}", r.w, g), t.warn)
-            y += 1
         elif not problems:
-            cv.put(y, x, "none in the last few hundred journal lines", t.ok)
-            y += 1
-        for e in problems:
-            if y >= r.y + r.h:
-                break
-            line = f"{e.when()}  {e.source:<15} {e.msg}"
-            cv.put(y, x, fit(line, r.w, g), t.level(e.level))
-            y += 1
+            cv.put(y, x, "none since you cleared" if cleared else "none in the last few hundred journal lines", t.ok)
+        else:
+            if self.follow:
+                self.cur.i = max(0, len(problems) - 1)
+            self.cur.clamp(len(problems), avail)
+            for i, e in enumerate(problems[self.cur.top:self.cur.top + avail]):
+                selected = self.cur.top + i == self.cur.i and not self.follow
+                base = t.sel if selected else 0
+                line = f"{e.when()}  {e.source:<15} {e.msg}"
+                cv.put(y + i, x, " " * r.w, base)
+                cv.put(y + i, x, fit(line, r.w, g), base if selected else t.level(e.level))
 
     def handle(self, ch):
         app, m = self.app, self.m
-        if ch == ord("k"):
+        problems = self.problems()
+        if ch in MOVE_KEYS:
+            if not problems:
+                return True
+            self.follow = ch in (KEY_END, ord("G"))
+            self.cur.key(ch, len(problems))
+        elif ch in KEYS_ENTER and problems:
+            self.entry_notice(problems[min(self.cur.i, len(problems) - 1)])
+        elif ch == ord("l"):
+            app.views["Logs"].errors_only = True
+            app.switch("Logs")
+        elif ch == ord("c"):
+            app.clear_journal()
+        elif ch == ord("C"):
+            app.show_all_journal()
+        elif ch == ord("k"):
             items = [(str(n), ["off", "low", "mid", "high"][n], (lambda n=n: app.act(lambda: m.kb_backlight(n))))
                      for n in range(4)]
             app.open_modal(Menu("Keyboard backlight", items))
@@ -581,10 +629,27 @@ class Overview(View):
                 return True
             names = ", ".join(u.name for u in running)
             app.open_modal(Confirm("Restart daemons", [f"Restart {names}?"],
-                                   lambda: [app.act(lambda u=u: m.restart(u.name)) for u in running]))
+                                   lambda: self.restart_all(running)))
         else:
             return False
         return True
+
+    def restart_all(self, units):
+        """Restart several daemons under one notice; one act() per unit would
+        leave only the last one's output on screen."""
+        app, m = self.app, self.m
+        out, ok = [], True
+        for u in units:
+            try:
+                r = m.restart(u.name)
+            except Exception as e:      # an action must never take the screen down
+                r = dm.Result(False, f"restart {u.name}", repr(e))
+            ok = ok and r.ok
+            out.append(f"{u.name}: {r.summary}")
+        names = ", ".join(u.name for u in units)
+        app.say(f"restarted {names}" if ok else "a restart failed", "ok" if ok else "err")
+        app.notice("Restart daemons", out, "ok" if ok else "err")
+        m.bump()
 
 
 class Services(View):
@@ -692,11 +757,15 @@ class Services(View):
                     lines.append(("generated by home-manager: enable/disable here lasts until the next switch", t.dim))
                 if f.scope == "system":
                     lines.append((f"a system unit: sudo systemctl restart {f.unit}", t.dim))
-            problems = self.m.recent_problems(n=6, unit=f.unit) if f.unit else []
+            # Only the user units are in the journal the screen reads, so a
+            # system unit must not be reported as quiet: nothing looked.
+            problems = self.m.recent_problems(n=6, unit=f.unit) if f.scope == "user" else []
             if problems:
                 lines.append(("recent problems from this unit:", t.head))
                 for e in problems:
                     lines.append((f"  {e.when()}  {e.msg}", t.level(e.level)))
+            elif f.scope != "user":
+                lines.append((f"its lines are in the system journal: journalctl -u {f.unit} -b", t.dim))
             elif u is not None and u.installed:
                 lines.append(("no warnings or errors from this unit in the journal backlog", t.ok))
         elif f.scope == "dsp":
@@ -712,7 +781,7 @@ class Services(View):
     def handle(self, ch):
         app, m = self.app, self.m
         rows = self.rows()
-        if self.cur.key(ch, len(rows), 10):
+        if self.cur.key(ch, len(rows)):
             return True
         if not rows:
             return False
@@ -731,13 +800,29 @@ class Services(View):
         elif ch == ord("s"):
             if f.scope == "user":
                 app.act(lambda: m.start_stop(f.name))
+            elif f.unit:
+                app.notice("Start / stop", [f"{f.unit} is a system unit:",
+                                            f"sudo systemctl start {f.unit}", f"sudo systemctl stop {f.unit}"], "warn")
+            else:
+                app.notice("Start / stop", [f"{f.name} is not a unit; there is nothing to start or stop"], "warn")
         elif ch == ord("l"):
-            if f.unit:
-                app.views["Logs"].source = f.unit
-                app.switch("Logs")
+            self.logs(f)
         else:
             return False
         return True
+
+    def logs(self, f):
+        """Open Logs on this unit, or say where its lines really are."""
+        app = self.app
+        if f.scope == "user":
+            app.views["Logs"].source = f.unit
+            app.views["Logs"].follow = True
+            app.switch("Logs")
+        elif f.unit:
+            app.notice("Logs", [f"{f.unit} is a system unit. duo reads the user journal, so its",
+                                "lines are not here:", f"journalctl -u {f.unit} -b"], "info")
+        else:
+            app.notice("Logs", [f"{f.name} has no unit of its own, so nothing logs under that name"], "info")
 
     def enable(self, f):
         app, m = self.app, self.m
@@ -774,7 +859,7 @@ class Services(View):
             if u is not None and u.installed:
                 verb = "stop" if u.state in ("running", "activating") else "start"
                 items.append((verb, f"{verb} without changing enablement", lambda: app.act(lambda: m.start_stop(f.name))))
-            items.append(("logs", "the journal of this unit", lambda: self.handle(ord("l"))))
+            items.append(("logs", "the journal of this unit", lambda: self.logs(f)))
         elif f.scope == "dsp":
             items.append(("status", "what is installed, and whether the chain is live", self.dsp_status))
             items.append(("install", "write the preset and db", lambda: self.enable(f)))
@@ -783,7 +868,7 @@ class Services(View):
             items.append(("how to enable", "shows the installer command", lambda: app.act(lambda: m.enable(f.name))))
             items.append(("how to disable", "shows the installer command", lambda: app.act(lambda: m.disable(f.name))))
             if f.unit:
-                items.append(("logs", "the journal of this unit", lambda: self.handle(ord("l"))))
+                items.append(("logs", "where this unit's journal is", lambda: self.logs(f)))
         app.open_modal(Menu(f.name, items))
 
     def dsp_status(self):
@@ -797,7 +882,7 @@ class Settings(View):
     hint = "Enter edit  space toggle  R restart the daemon that reads it"
     help_lines = (
         "Enter    edit the knob: a toggle, a choice list, or a text prompt with validation",
-        "space    flip a 0/1 knob",
+        "space    the same thing: a 0/1 knob flips, anything else opens its editor",
         "R        restart the daemon that reads the selected knob (shown in the row)",
         "Every change is written by `duo-cli config set`; the daemon reads it on its next start.",
     )
@@ -840,14 +925,11 @@ class Settings(View):
 
     def handle(self, ch):
         app, m = self.app, self.m
-        if self.cur.key(ch, len(dm.KNOBS), 10):
+        if self.cur.key(ch, len(dm.KNOBS)):
             return True
         k = dm.KNOBS[self.cur.i]
-        if ch in KEYS_ENTER:
-            app.edit_knob(k)
-        elif ch == ord(" ") and k.kind == "bool":
-            cur = m.config.get(k.key, "1")
-            app.set_knob(k, "0" if cur == "1" else "1")
+        if ch in KEYS_ENTER or ch == ord(" "):
+            app.edit_knob(k)     # a bool flips, anything else opens a list or a prompt
         elif ch == ord("R"):
             if k.daemon:
                 app.act(lambda: m.restart(k.daemon))
@@ -890,6 +972,11 @@ class Displays(View):
         self.m.want_displays(True)
         if self.m.displays is None and not self.m.displays_error:
             self.app.background(lambda: self.m.refresh_slow(displays=True))
+
+    def on_hide(self):
+        # Every poll spawns displayctl.py under PyGObject. Nothing else on the
+        # screen reads Mutter, so stop asking the moment this view is gone.
+        self.m.want_displays(False)
 
     def render(self, cv, r):
         m, t, g = self.m, self.app.t, self.app.g
@@ -940,7 +1027,7 @@ class Displays(View):
 
     def handle(self, ch):
         app, m = self.app, self.m
-        if self.cur.key(ch, len(self.ACTIONS), 10):
+        if self.cur.key(ch, len(self.ACTIONS)):
             return True
         if ch == ord("r"):
             app.background(lambda: m.refresh_slow(displays=True))
@@ -1030,7 +1117,7 @@ class Doctor(View):
 
     def handle(self, ch):
         lines = self.lines()
-        if self.cur.key(ch, len(lines), 10):
+        if self.cur.key(ch, len(lines)):
             return True
         if ch == ord("r"):
             self.m.run_doctor_async()
@@ -1047,14 +1134,17 @@ class Doctor(View):
 
 class Logs(View):
     name = "Logs"
-    hint = "s source  e errors only  f follow  / filter  c clear  Enter full entry"
+    hint = "s source  e errors  f follow  / filter  c clear  C show all  Enter entry"
     help_lines = (
         "s        next source: all zenduo, each unit, then the kernel's Duo-related lines",
         "e        only warnings and errors (priority, or words like failed/refused/cannot)",
         "f        follow: stay at the bottom as new lines arrive",
-        "/        filter by a substring; c clears it",
+        "/        filter by a substring; an empty filter shows everything again",
+        "c        clear: hide every line on screen now, here and under Recent problems",
+        "C        bring the cleared lines back",
         "Enter    the selected entry in full",
-        "The journal is read with journalctl --user -o json; the kernel view needs the adm group.",
+        "Clearing hides lines, it never deletes them: the journal belongs to journald,",
+        "and duo only reads it (journalctl --user -o json; the kernel view needs adm).",
     )
     SOURCES = ["all"] + [f.unit for f in dm.FEATURES if f.scope == "user"] + ["kernel"]
 
@@ -1073,12 +1163,9 @@ class Logs(View):
             self.app.background(self.m.refresh_kernel)
 
     def entries(self):
-        if self.source == "kernel":
-            src = list(self.m.kernel_entries)
-        else:
-            src = list(self.m.entries)
-            if self.source != "all":
-                src = [e for e in src if e.unit == self.source]
+        src = self.m.journal(kernel=self.source == "kernel")
+        if self.source not in ("all", "kernel"):
+            src = [e for e in src if e.unit == self.source]
         if self.errors_only:
             src = [e for e in src if e.level in ("err", "warn")]
         if self.filter:
@@ -1095,6 +1182,8 @@ class Logs(View):
             bits.append("errors only")
         if self.filter:
             bits.append(f"filter: {self.filter!r}")
+        if m.cleared_at:
+            bits.append("cleared " + time.strftime("%H:%M:%S", time.localtime(m.cleared_at)))
         bits.append("following" if self.follow else "paused")
         bits.append(f"{len(entries)} lines")
         cv.put(r.y, r.x, fit("   ".join(bits), r.w, g), t.info)
@@ -1124,14 +1213,14 @@ class Logs(View):
     def handle(self, ch):
         app = self.app
         entries = self.entries()
-        if ch in (KEY_UP, KEY_DOWN, KEY_PPAGE, KEY_NPAGE, KEY_HOME, KEY_END, ord("j"), ord("k"), ord("g"), ord("G")):
-            self.follow = False
-            self.cur.key(ch, len(entries), 10)
-            if ch in (KEY_END, ord("G")):
-                self.follow = True
+        if ch in MOVE_KEYS:
+            if not entries:
+                return True
+            self.follow = ch in (KEY_END, ord("G"))
+            self.cur.key(ch, len(entries))
             return True
         if ch == ord("s"):
-            i = self.SOURCES.index(self.source) if self.source in self.SOURCES else 0
+            i = self.SOURCES.index(self.source) if self.source in self.SOURCES else -1
             self.source = self.SOURCES[(i + 1) % len(self.SOURCES)]
             self.cur.i = 0
             self.on_show()
@@ -1140,13 +1229,14 @@ class Logs(View):
         elif ch == ord("f"):
             self.follow = not self.follow
         elif ch == ord("c"):
-            self.filter = ""
+            app.clear_journal()
+            self.follow = True
+        elif ch == ord("C"):
+            app.show_all_journal()
         elif ch == ord("/"):
             app.open_modal(Prompt("Filter", ["Show only lines containing:"], self.filter, self.set_filter))
         elif ch in KEYS_ENTER and entries:
-            e = entries[min(self.cur.i, len(entries) - 1)]
-            head = f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(e.ts))}  {e.source}  pid {e.pid or '?'}  priority {e.pri}"
-            app.notice("Journal entry", [head, "", e.msg], e.level)
+            self.entry_notice(entries[min(self.cur.i, len(entries) - 1)])
         elif ch == ord("r"):
             app.background(self.m.refresh_kernel if self.source == "kernel" else self.m.refresh_slow)
         else:
@@ -1196,6 +1286,8 @@ class App:
     def switch(self, name):
         if name not in self.views:
             return
+        if name != self.current:
+            self.views[self.current].on_hide()
         self.current = name
         self.views[name].on_show()
 
@@ -1211,6 +1303,14 @@ class App:
     def say(self, text, level="info"):
         self.status = (text, level)
         self.status_at = time.time()
+
+    def clear_journal(self):
+        hidden = self.model.clear_journal()
+        self.say(f"cleared {hidden} line(s) from the screen; journald still has them, C brings them back")
+
+    def show_all_journal(self):
+        self.model.show_all()
+        self.say("showing every line the journal kept")
 
     def act(self, fn):
         """Run an action now, put its one-line outcome in the status bar and
@@ -1237,7 +1337,7 @@ class App:
             self.model.bump()
         th = threading.Thread(target=work, daemon=True)
         th.start()
-        self._threads.append(th)
+        self._threads = [t for t in self._threads if t.is_alive()] + [th]
 
     def edit_knob(self, k):
         m = self.model
@@ -1304,7 +1404,8 @@ class App:
             units += f", {failed} FAILED"
         if stalled:
             units += f", {stalled} enabled but stopped"
-        kb = {"docked": "docked", "undocked": "undocked", "dead": "USB link DEAD"}[m.glance.keyboard]
+        kb = {"docked": "docked", "undocked": "undocked",
+              "dead": "USB link DEAD"}.get(m.glance.keyboard, m.glance.keyboard)
         left = f" duo {m.version_text} {g.dot} {m.glance.model or 'unknown model'} {g.dot} keyboard {kb} {g.dot} {units} "
         clock = time.strftime(" %H:%M:%S ")
         cv.put(0, 0, " " * w, t.title)
@@ -1338,7 +1439,9 @@ class App:
             cv.put(h - 2, 2, fit(f" {text} ", w - 4, g), t.level(level) | t.bold)
         elif m.errors:
             cv.put(h - 2, 2, fit(f" {m.errors[-1]} ", w - 4, g), t.warn)
-        hint = f"{view.hint}   {g.dot} 1-6/Tab views  ? help  q quit"
+        # The nav column already shows the view numbers, so the tail stays short:
+        # every view's own keys have to fit on an 80-column terminal.
+        hint = f"{view.hint}   {g.dot} ? help  q quit"
         cv.put(h - 1, 0, fit(" " + hint, w, g), t.dim)
         if self.modal is not None:
             self.modal.render(self, cv, Region(1, 0, h - 2, w))
@@ -1365,7 +1468,7 @@ class App:
             self.switch(self.order[(self.order.index(self.current) + 1) % len(self.order)])
         elif ch == KEY_BTAB:
             self.switch(self.order[(self.order.index(self.current) - 1) % len(self.order)])
-        elif ord("1") <= ch <= ord(str(len(self.order))):
+        elif ord("1") <= ch <= ord("9") and ch - ord("1") < len(self.order):
             self.switch(self.order[ch - ord("1")])
         elif ch == ord("r"):
             self.background(self.model.refresh_all)
@@ -1379,9 +1482,13 @@ class App:
         lines.extend(view.help_lines)
         lines += ["", "Everywhere",
                   "1-6, Tab, Shift-Tab   switch view",
-                  "Up/Down, j/k, PgUp/PgDn, g/G   move",
+                  "Up/Down, j/k, PgUp/PgDn, g/G   move in the list this view shows",
                   "r        refresh everything now (the screen also refreshes itself every second)",
+                  "Esc      clear the status line, or close the box in front of you",
                   "?        this help        q        quit",
+                  "",
+                  "In a box: Up/Down and PgUp/PgDn scroll it, Enter or Esc closes it, and a",
+                  "question takes y or n.",
                   "",
                   "Every action here is a duo-cli or systemctl --user command; the status line",
                   "shows what it printed, and a failure opens the full output."]
@@ -1432,7 +1539,7 @@ def main(argv=None):
         # `duo --snapshot [VIEW] [WxH]`: one frame as text, for CI and bug reports.
         view, size = "Overview", "100x32"
         for a in argv[1:]:
-            if "x" in a and a.replace("x", "").isdigit():
+            if a.count("x") == 1 and a.replace("x", "").isdigit():
                 size = a
             else:
                 view = a.capitalize()
