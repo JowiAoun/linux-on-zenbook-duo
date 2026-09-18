@@ -33,6 +33,8 @@
 - the screen stops asking Mutter for the display state once you leave the
   Displays view, and copying the journal while the follower appends to it can
   no longer raise
+- Ctrl-C leaves the screen the way `q` does, instead of printing a traceback
+  over the terminal it just restored
 - `watch-fn` no longer reports "media keys are dead" while the keyboard is
   re-enumerating: it waits for the node set to hold still before sending the
   handshake, names a set that vanished under it, and only raises the alarm

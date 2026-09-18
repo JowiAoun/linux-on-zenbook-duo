@@ -1508,26 +1508,32 @@ class App:
         self.views[self.current].on_show()
         try:
             while not self.quit:
-                version = self.model.version
-                now = int(time.time())
-                if version != self._drawn_version or now != getattr(self, "_drawn_second", None):
-                    h, w = scr.getmaxyx()
-                    cv = Canvas(h, w)
-                    self.render(cv)
-                    scr.erase()
-                    cv.blit(scr)
-                    scr.refresh()
-                    self._drawn_version, self._drawn_second = version, now
-                ch = scr.getch()
-                if ch == -1:
-                    continue
-                if ch == KEY_RESIZE:
-                    self._drawn_version = -1
-                    continue
-                self.handle_key(ch)
-                self._drawn_version = -1
+                try:
+                    self.frame(scr)
+                except KeyboardInterrupt:   # Ctrl-C is a way out, not a crash
+                    self.quit = True
         finally:
             self.model.stop()
+
+    def frame(self, scr):
+        version = self.model.version
+        now = int(time.time())
+        if version != self._drawn_version or now != getattr(self, "_drawn_second", None):
+            h, w = scr.getmaxyx()
+            cv = Canvas(h, w)
+            self.render(cv)
+            scr.erase()
+            cv.blit(scr)
+            scr.refresh()
+            self._drawn_version, self._drawn_second = version, now
+        ch = scr.getch()
+        if ch == -1:
+            return
+        if ch == KEY_RESIZE:
+            self._drawn_version = -1
+            return
+        self.handle_key(ch)
+        self._drawn_version = -1
 
 
 def main(argv=None):
@@ -1576,7 +1582,10 @@ def main(argv=None):
         app = App(dm.Model(), Theme.for_curses(), ascii_only=ascii_only)
         app_holder["app"] = app
         app.run(scr)
-    curses.wrapper(start)
+    try:
+        curses.wrapper(start)
+    except KeyboardInterrupt:
+        return 130
     return 0
 
 

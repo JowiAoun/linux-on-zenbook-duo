@@ -357,7 +357,8 @@ class EveryKeyTest(unittest.TestCase):
 
 @unittest.skipUnless(tui.curses is not None and hasattr(os, "forkpty"), "needs curses and a pty")
 class RealTerminalTest(unittest.TestCase):
-    def test_the_program_starts_switches_views_and_quits(self):
+    def run_screen(self, keys, last, settle=0.7):
+        """Open the real program on a pty, press keys, and return what it drew."""
         import fcntl
         import pty
         import select
@@ -382,10 +383,10 @@ class RealTerminalTest(unittest.TestCase):
                     except OSError:
                         return
         drain(3.0)
-        for key in (b"2", b"3", b"4", b"?", b"\x1b", b"6", b"c", b"C", b"1"):
+        for key in keys:
             os.write(fd, key)
-            drain(0.7)
-        os.write(fd, b"q")
+            drain(settle)
+        os.write(fd, last)
         drain(1.0)
         status = None
         for _ in range(100):
@@ -395,12 +396,19 @@ class RealTerminalTest(unittest.TestCase):
             time.sleep(0.1)
         else:
             os.kill(pid, signal.SIGKILL)
-            self.fail("duo did not quit on q")
+            self.fail(f"duo did not quit on {last!r}")
         text = out.decode("utf-8", "replace")
         self.assertNotIn("Traceback", text)
         self.assertEqual(status, 0, text[-500:])
+        return text
+
+    def test_the_program_starts_switches_views_and_quits(self):
+        text = self.run_screen((b"2", b"3", b"4", b"?", b"\x1b", b"6", b"c", b"C", b"1"), b"q")
         for word in ("Overview", "Services", "Settings", "Displays", "Logs", "Everywhere"):
             self.assertIn(word, text)
+
+    def test_ctrl_c_leaves_the_same_way_q_does(self):
+        self.run_screen((), b"\x03")
 
 
 if __name__ == "__main__":
