@@ -595,6 +595,7 @@ class Model:
 
     FAST_SECONDS = 1.0     # units + sysfs
     SLOW_SECONDS = 6.0     # config, displays, journal backlog
+    AMP_SECONDS = 60.0     # the amp reporter reads the whole kernel journal
 
     def __init__(self):
         self.version_text = _read(os.path.join(ROOT, "VERSION"), "dev")
@@ -611,6 +612,7 @@ class Model:
         self.doctor_at = 0.0
         self.version = 0
         self.amp_state = ""
+        self._amp_at = 0.0
         self.errors = []       # reader failures, shown once each
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -633,7 +635,12 @@ class Model:
         self.bump()
 
     def refresh_slow(self, displays=None):
-        self.amp_state = read_amp_state()
+        # The reporter greps this boot's whole kernel journal, and the amps
+        # only fail at probe or on a resume, so once a minute is plenty.
+        now = time.monotonic()
+        if not self._amp_at or now - self._amp_at >= self.AMP_SECONDS:
+            self.amp_state = read_amp_state()
+            self._amp_at = now
         self.glance.amp_state = self.amp_state
         self.config_path, self.config, self.config_hm, self.config_error = read_config()
         want = self._wanted["displays"] if displays is None else displays
