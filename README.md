@@ -28,6 +28,7 @@ OLED flicker is gone.
 | Bottom panel brightness follows the top panel | ASUS driver | brightness keys, `duo sync-backlight`, optional `duo watch-backlight` | ✅ |
 | Battery charge limit (e.g. 80 %) re-applied at every login | MyASUS | `duo bat-limit`, `BATTERY_LIMIT` in the config | ✅ |
 | Speaker voicing: high-pass, bass psychoacoustics, staged compressor, limiter | harman/kardon APO | `duo speaker-dsp` (EasyEffects chain, one definition for Nix and non-Nix) | ✅ measured, see [nix/audio.nix](nix/audio.nix) |
+| Sound survives an app asking for a tiny buffer, instead of the device wedging and silencing everything (Roblox does it; browser video stalls with it) | — | a PipeWire buffer floor, on by default (`zenduo.audioBufferFloor`) | ✅ measured 2026-09-19 |
 | Loud notice when the speaker amps come up unprotected after a Windows Fast-Startup boot | — | `duo-cs35l41-check` system service | ✅ |
 | Palm rejection on the detachable touchpad while typing | ASUS driver | libinput quirk + GNOME's disable-while-typing | ✅ |
 | No OLED flicker | ASUS driver | `i915.enable_psr=0` on the kernel command line | ✅ |

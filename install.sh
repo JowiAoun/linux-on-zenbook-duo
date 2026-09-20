@@ -24,6 +24,7 @@
 #   --battery-limit N      set BATTERY_LIMIT=N (20-100) and enable duo-bat-limit
 #   --apply-method M       temporary (default) | persistent — read the config's warning first
 #   --speaker-dsp          install the EasyEffects speaker voicing chain
+#   --no-audio-buffer-floor  don't set the PipeWire buffer floor (docs/HARDWARE.md)
 #
 # Other:
 #   --dev                  link the system install to THIS checkout instead of
@@ -47,7 +48,7 @@ TARGET_USER=""
 SYSTEM_FLAGS=()   # forwarded to system/run.sh
 USER_FLAGS=()     # forwarded to the user half when it re-runs under runuser (see below)
 WATCH_DISPLAYS=1 WATCH_FN=1 WATCH_BACKLIGHT=0 WATCH_ROTATION=0
-BATTERY_LIMIT="" APPLY_METHOD="" SPEAKER_DSP=0
+BATTERY_LIMIT="" APPLY_METHOD="" SPEAKER_DSP=0 AUDIO_FLOOR=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -73,6 +74,8 @@ while [ $# -gt 0 ]; do
     --apply-method)      [ $# -ge 2 ] || die "--apply-method needs temporary|persistent"; APPLY_METHOD="$2"; USER_FLAGS+=(--apply-method "$2"); shift ;;
     --speaker-dsp)       SPEAKER_DSP=1; USER_FLAGS+=("$1") ;;
     --no-speaker-dsp)    SPEAKER_DSP=0; USER_FLAGS+=("$1") ;;
+    --audio-buffer-floor)    AUDIO_FLOOR=1; USER_FLAGS+=("$1") ;;
+    --no-audio-buffer-floor) AUDIO_FLOOR=0; USER_FLAGS+=("$1") ;;
     -h|--help)           sed -n '2,/^[^#]/{/^[^#]/!p}' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
@@ -90,7 +93,7 @@ case "${APPLY_METHOD:-temporary}" in temporary|persistent) ;; *) die "--apply-me
 # forwarded, then stop before anything is touched.
 if [ "${ZENDUO_INSTALL_PLAN:-0}" = 1 ]; then
   for v in DO_SYSTEM DO_USER DRY_RUN FORCE PREFIX TARGET_USER WATCH_DISPLAYS WATCH_FN \
-           WATCH_BACKLIGHT WATCH_ROTATION BATTERY_LIMIT APPLY_METHOD SPEAKER_DSP; do
+           WATCH_BACKLIGHT WATCH_ROTATION BATTERY_LIMIT APPLY_METHOD SPEAKER_DSP AUDIO_FLOOR; do
     printf '%s=%s\n' "$v" "${!v}"
   done
   printf 'SYSTEM_FLAGS=%s\n' "${SYSTEM_FLAGS[*]}"
@@ -220,7 +223,39 @@ user_phase() {
     fi
   fi
 
-  # 5. one more thing the dock daemon cannot do for you on a fresh machine
+  # 5. the audio buffer floor. One application asking PipeWire for a small
+  #    buffer resizes the ALSA device too, and this machine's SOF pipeline
+  #    underruns into a wedge it never leaves, taking every other stream with
+  #    it. The file explains it in full; docs/HARDWARE.md has the measurements.
+  local floor_src floor_dst floor_val
+  floor_src="$SRC/config/pipewire/10-zenduo-min-quantum.conf"
+  floor_dst="${XDG_CONFIG_HOME:-$HOME/.config}/pipewire/pipewire.conf.d/$(basename "$floor_src")"
+  if [ "$AUDIO_FLOOR" = 1 ]; then
+    if [ "$(cat "$floor_dst" 2>/dev/null || true)" = "$(cat "$floor_src")" ]; then
+      log "audio buffer floor: up to date"
+    else
+      log "audio buffer floor: installing $floor_dst"
+      if [ "$DRY_RUN" != 1 ]; then
+        mkdir -p "$(dirname "$floor_dst")"
+        cp "$floor_src" "$floor_dst"
+      fi
+    fi
+    # PipeWire only reads that file when it starts, so apply the same value to
+    # the server running right now. The value comes out of the file, so there
+    # is one definition of it and not two. This also clears a device that is
+    # already wedged: a quantum change makes PipeWire re-open it.
+    floor_val="$(sed -nE 's/^[[:space:]]*default\.clock\.min-quantum[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' "$floor_src" | head -n1)"
+    if [ "$DRY_RUN" != 1 ] && [ -n "$floor_val" ] && command -v pw-metadata >/dev/null 2>&1; then
+      if pw-metadata -n settings 0 clock.min-quantum "$floor_val" >/dev/null 2>&1; then
+        log "audio buffer floor: $floor_val applied to the running PipeWire too"
+      fi
+    fi
+  elif [ -e "$floor_dst" ]; then
+    log "audio buffer floor: removing $floor_dst"
+    [ "$DRY_RUN" = 1 ] || rm -f "$floor_dst"
+  fi
+
+  # 6. one more thing the dock daemon cannot do for you on a fresh machine
   if [ "$DRY_RUN" != 1 ] && command -v dconf >/dev/null 2>&1 && [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
     # GNOME's own disable-while-typing switch (the quirk gives it something to act on).
     dconf write /org/gnome/desktop/peripherals/touchpad/disable-while-typing true 2>/dev/null || true

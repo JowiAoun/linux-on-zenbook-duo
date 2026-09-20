@@ -18,6 +18,22 @@
 - `duo --snapshot [view] [WxH]` prints one frame as text, which is what CI
   and a bug report use
 
+### Sound survives an app that asks for a tiny buffer
+
+- PipeWire sizes the whole graph, the sound device included, from the smallest
+  buffer any one client asks for. Roblox asks for 240 frames, the SOF pipeline
+  underruns, and PipeWire 1.0.5 cannot reset it from its recovery path. So the
+  device stops producing cycles and every other stream goes silent with it,
+  browser video included. Thirteen episodes in one day, the longest 167 minutes
+- a floor under the buffer prevents it, on by default
+  (`zenduo.audioBufferFloor`, `./install.sh --no-audio-buffer-floor` to skip).
+  The floor is PipeWire's own default quantum, so nothing runs with a smaller
+  buffer than it already did, and Roblox still gets sound at 21 ms of latency
+  instead of the 5 ms it asked for. Turn it off for recording or DAW work
+- clearing a wedge that has already happened no longer costs the clients their
+  streams: `pw-metadata -n settings 0 clock.min-quantum 1024` re-opens the
+  device, where restarting PipeWire takes Wine and FMOD clients down with it
+
 ### Fixes
 
 - `c` in the screen's Logs clears the view: it hides every line showing there

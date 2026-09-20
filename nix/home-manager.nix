@@ -63,7 +63,7 @@ let
   '';
 in
 {
-  imports = [ ./touchpad.nix ./audio.nix ];
+  imports = [ ./touchpad.nix ./audio.nix ./pipewire.nix ];
 
   options.zenduo = {
     enable = lib.mkEnableOption "the zenduo user daemons for the ASUS Zenbook Duo (2024) UX8406MA";

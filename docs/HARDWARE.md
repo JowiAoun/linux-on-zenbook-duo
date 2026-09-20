@@ -170,6 +170,40 @@ FMOD ones stay silent until restarted — so it is a repair, not something to
 schedule. Do **not** reach for the CS35L41 driver here: the re-bind hazard
 above still applies, and the amps are not what failed.
 
+Cheaper than that restart, and it keeps every stream: change the quantum, which
+makes PipeWire re-open the device.
+
+    pw-metadata -n settings 0 clock.min-quantum 1024
+
+VERIFIED 2026-09-19 on a device that was already wedged, with Roblox Studio
+open: the loop stopped within seconds, playback worked again, and Studio kept
+its stream, which the restart above would have taken from it.
+
+**The other way in, and the one worth preventing (MEASURED 2026-09-19).** The
+682 ms buffer above is only the buffer while everything asks for the default
+size. PipeWire sizes the graph, the device included, from the smallest buffer
+any one client asks for, so a single application can cut that deadline to a few
+milliseconds and underrun on its own, with RAM free and nothing swapping.
+Roblox does exactly that, under Sober and under Wine alike:
+
+    node.latency = 240/48000        read off the live stream with pw-dump
+
+Thirteen episodes in one day that way, against sixteen in three days from
+memory pressure, and the longest ran 167 minutes. It ended only when PipeWire
+restarted itself after 14 minutes of CPU on the dead device. A test tone
+started during one never finished, which is the whole symptom: nothing on the
+device can play, so "the speakers died and videos won't play" is still one
+fault and not two.
+
+The fix is a floor under the buffer, shipped as
+[../config/pipewire/10-zenduo-min-quantum.conf](../config/pipewire/10-zenduo-min-quantum.conf)
+and on by default (`zenduo.audioBufferFloor`, or
+`./install.sh --no-audio-buffer-floor` to skip it). The floor is PipeWire's own
+default quantum, so nothing runs with a smaller buffer than it already did, and
+an app that asks for less is handed the default instead of being allowed to
+resize the device. Recording and DAW work need a small buffer and should turn
+it off.
+
 **Memory pressure is an audio bug on this machine.** PipeWire's `pw-data-loop`
 runs at RT priority 20 but nothing is locked (`VmLck: 0 kB`), so it takes major
 page faults like any other thread. Measured 2026-09-13 during an episode: 19

@@ -230,13 +230,13 @@ done
 group "install.sh argument plumbing"
 plan()  { ZENDUO_INSTALL_PLAN=1 ./install.sh "$@" 2>/dev/null; }
 field() { printf '%s\n' "$1" | sed -n "s/^$2=//p"; }
-p="$(plan --dry-run --dev --prefix /opt/z --no-watch-fn --watch-rotation --battery-limit 80 --apply-method persistent --speaker-dsp --user bob)"
+p="$(plan --dry-run --dev --prefix /opt/z --no-watch-fn --watch-rotation --battery-limit 80 --apply-method persistent --speaker-dsp --no-audio-buffer-floor --user bob)"
 is "--user NAME names the target account"     "$(field "$p" TARGET_USER)" bob
 is "--user NAME keeps both halves"            "$(field "$p" DO_SYSTEM),$(field "$p" DO_USER)" "1,1"
 is "--dry-run is parsed"                      "$(field "$p" DRY_RUN)" 1
 is "system flags exclude the user-only ones"  "$(field "$p" SYSTEM_FLAGS)" "--dry-run --dev --prefix /opt/z"
 fwd="$(field "$p" USER_FLAGS)"
-is "every user-half flag is forwarded"        "$fwd" "--dry-run --prefix /opt/z --no-watch-fn --watch-rotation --battery-limit 80 --apply-method persistent --speaker-dsp"
+is "every user-half flag is forwarded"        "$fwd" "--dry-run --prefix /opt/z --no-watch-fn --watch-rotation --battery-limit 80 --apply-method persistent --speaker-dsp --no-audio-buffer-floor"
 # The round trip the root path performs: re-parse exactly what it forwards.
 # shellcheck disable=SC2086  # word-splitting the forwarded flags is the point
 c="$(plan $fwd --user)"
@@ -247,6 +247,9 @@ is "child: --no-watch-fn survives"            "$(field "$c" WATCH_FN)" 0
 is "child: --watch-rotation survives"         "$(field "$c" WATCH_ROTATION)" 1
 is "child: --battery-limit survives"          "$(field "$c" BATTERY_LIMIT)" 80
 is "child: --apply-method survives"           "$(field "$c" APPLY_METHOD)" persistent
+is "child: --no-audio-buffer-floor survives"  "$(field "$c" AUDIO_FLOOR)" 0
+# The floor is a fix, not a taste: it is on unless it is turned off.
+is "the audio buffer floor defaults on"       "$(field "$(plan)" AUDIO_FLOOR)" 1
 is "child: --speaker-dsp survives"            "$(field "$c" SPEAKER_DSP)" 1
 is "no flags forwards nothing"                "$(field "$(plan)" USER_FLAGS)" ""
 is "--user alone means the user half only"    "$(field "$(plan --user)" DO_SYSTEM)" 0

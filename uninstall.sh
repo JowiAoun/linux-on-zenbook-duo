@@ -45,6 +45,14 @@ user_half() {
     rm -f "$f"; log "removed $f"
   done
   systemctl --user daemon-reload 2>/dev/null || true
+  local floor="${XDG_CONFIG_HOME:-$HOME/.config}/pipewire/pipewire.conf.d/10-zenduo-min-quantum.conf"
+  if [ -e "$floor" ]; then
+    if nix_managed "$floor"; then
+      warn "$(basename "$floor") is managed by home-manager — remove it there"
+    else
+      rm -f "$floor"; log "removed $floor"
+    fi
+  fi
   if [ "$PURGE" = 1 ]; then
     python3 lib/speaker_dsp.py uninstall || true
     rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/zenduo" "${XDG_STATE_HOME:-$HOME/.local/state}/zenduo"

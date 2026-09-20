@@ -42,6 +42,7 @@
               enable = true;
               batteryLimit = 80;
               speakerDsp = true;
+              audioBufferFloor = true;
               watchBacklight = true;
               watchRotation = true;
             };
