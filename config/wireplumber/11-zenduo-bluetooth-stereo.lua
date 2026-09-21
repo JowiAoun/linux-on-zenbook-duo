@@ -1,0 +1,40 @@
+-- linux-on-zenbook-duo: keep a Bluetooth headset on its stereo profile when a
+-- voice app opens the microphone.
+--
+-- ── What goes wrong without it (MEASURED 2026-09-20 on UX8406MA) ────────────
+-- WirePlumber 0.4 (Ubuntu 24.04) ships policy-bluetooth.lua with
+-- media-role.use-headset-profile = true. The moment a capture stream starts
+-- whose media.role is "Communication" or whose application.name is on its
+-- list (Discord's "WEBRTC VoiceEngine", every browser's "... input", Zoom,
+-- Telegram, Skype, Mumble), and the default output is a Bluetooth device, it
+-- switches that device to the highest-priority profile with an input route:
+-- the headset profile. Two seconds after the last such stream stops, it
+-- switches back.
+--
+-- The headset profile is HFP: mSBC at best, mono, 16 kHz, over a SCO link.
+-- Every application's sound goes through it, not only the call. Read off the
+-- live graph with pw-top while Roblox was playing and Discord had the
+-- microphone open:
+--
+--     bluez_output.70_5A_6F_6B_3B_81.1   S16LE 1 16000   headset-head-unit-msbc
+--
+-- against S24LE 2 48000 on the a2dp-sink (aptX) profile five minutes earlier.
+-- That is the "sound went static and low quality in the game" report, and it
+-- is not the game: the session manager makes the switch on the strength of
+-- the capturing app's name, and it makes it even when that app captures from
+-- the laptop's own microphone (Discord was on the internal DMIC the whole
+-- time; the script checks the default sink, never where the stream reads).
+--
+-- ── What this file does ─────────────────────────────────────────────────────
+-- Turns the automatic switch off. The headset stays on A2DP; a voice app gets
+-- the microphone it asked for, which on this machine is the internal array by
+-- default. To use the earbuds' own microphone, pick the "Headset Head Unit"
+-- profile in Settings > Sound for the call and switch back afterwards, which
+-- is also what Windows makes you do: it exposes "Headset" and "Headphones" as
+-- two devices and never moves a stream between them on its own.
+--
+-- Loaded by WirePlumber 0.4 from policy.lua.d/, after 10-default-policy.lua
+-- sets the default and before 90-enable-all.lua reads it. WirePlumber 0.5 and
+-- later do not read this directory; zenduo-bluetooth-stereo.conf next to this
+-- file carries the same setting for them.
+bluetooth_policy.policy["media-role.use-headset-profile"] = false

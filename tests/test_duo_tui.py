@@ -143,6 +143,22 @@ class RenderTest(unittest.TestCase):
         self.assertIn("hotkey mode not confirmed", text)  # under Recent problems
         self.assertIn("2 ok, 1 FAILED", text)           # the title bar
 
+    def test_overview_names_a_headset_on_the_phone_profile_and_a_loop_without_realtime(self):
+        app = app_for()
+        app.model.glance.bluetooth = [{"name": "bluez_card.x", "description": "EarFun Air Pro 4",
+                                       "profile": "headset-head-unit-msbc", "profile_description": "HSP/HFP",
+                                       "stereo": False, "headset": True}]
+        app.model.glance.realtime = [("pipewire", 2200, 2290, "other", 0), ("wireplumber", 2208, 2288, "rr", 20)]
+        text = app.render_text(120, 36)
+        self.assertIn("EarFun Air Pro 4: headset profile, mono 16 kHz", text)
+        self.assertIn("none on pipewire (started before rtkit)", text)
+        app.model.glance.bluetooth[0].update(profile="a2dp-sink", profile_description="A2DP aptX",
+                                             stereo=True, headset=False)
+        app.model.glance.realtime[0] = ("pipewire", 2200, 2290, "rr", 20)
+        text = app.render_text(120, 36)
+        self.assertIn("EarFun Air Pro 4: A2DP aptX", text)
+        self.assertIn("data loops at realtime priority", text)
+
     def test_services_detail_pane_shows_the_units_own_errors(self):
         app = app_for()
         app.current = "Services"

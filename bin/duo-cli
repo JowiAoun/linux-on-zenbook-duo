@@ -463,6 +463,43 @@ cmd_doctor() {
       *) ck INFO 0 "CS35L41 amp state unknown: the kernel journal is not readable as this user (join the adm group, or re-run with sudo)" ;;
     esac
   fi
+  # A Bluetooth headset on its headset profile plays every app in mono at
+  # 16 kHz. WirePlumber's stock policy puts it there whenever a voice app
+  # captures; the shipped policy file stops that (docs/HARDWARE.md, Speakers).
+  local bt_lines="" bt_name bt_desc bt_prof bt_profdesc
+  bt_lines="$(python3 "$LIB/audio_probe.py" bluetooth 2>/dev/null || true)"
+  if [ -n "$bt_lines" ]; then
+    while IFS=$'\t' read -r bt_name bt_desc bt_prof bt_profdesc; do
+      [ -n "$bt_name" ] || continue
+      case "$bt_prof" in
+        headset-head-unit*) ck WARN 0 "Bluetooth: $bt_desc is on its headset profile ($bt_profdesc): every app plays mono 16 kHz through it; pick an A2DP profile in Settings > Sound" ;;
+        ""|off)             ck INFO 0 "Bluetooth: $bt_desc connected, no audio profile active" ;;
+        *)                  ck PASS 0 "Bluetooth: $bt_desc on $bt_profdesc" ;;
+      esac
+    done <<<"$bt_lines"
+  fi
+  local wp_lua="${XDG_CONFIG_HOME:-$HOME/.config}/wireplumber/policy.lua.d/11-zenduo-bluetooth-stereo.lua"
+  local wp_conf="${XDG_CONFIG_HOME:-$HOME/.config}/wireplumber/wireplumber.conf.d/zenduo-bluetooth-stereo.conf"
+  if [ -e "$wp_lua" ] && [ -e "$wp_conf" ]; then
+    ck PASS 0 "Bluetooth headsets stay in stereo when a voice app opens the microphone (WirePlumber policy installed)"
+  else
+    ck INFO 0 "a voice app (Discord, a browser call) will drop a Bluetooth headset to mono 16 kHz for every app: ./install.sh --user installs the WirePlumber policy that stops it"
+  fi
+  # PipeWire asks rtkit for realtime once, at start; a login that beats
+  # rtkit leaves its data loops at normal priority for the session.
+  local rt_lines="" rt_unit rt_pol rt_bad=""
+  rt_lines="$(python3 "$LIB/audio_probe.py" realtime 2>/dev/null || true)"
+  if [ -n "$rt_lines" ]; then
+    while IFS=$'\t' read -r rt_unit _ _ rt_pol; do
+      [ -n "$rt_unit" ] || continue
+      case "$rt_pol" in fifo|rr) ;; *) rt_bad="$rt_bad$rt_unit " ;; esac
+    done <<<"$rt_lines"
+    if [ -z "$rt_bad" ]; then
+      ck PASS 0 "PipeWire's data loops hold realtime priority"
+    else
+      ck WARN 0 "no realtime priority on: ${rt_bad% } (PipeWire started before rtkit was up); ./install.sh --user grants it now and makes the next start wait"
+    fi
+  fi
 
   echo
   echo "-- network (V15) --"

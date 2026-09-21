@@ -36,6 +36,15 @@
 
 ### Fixes
 
+- Bluetooth earbuds no longer drop to mono phone quality for every app when
+  Discord or a browser opens the microphone: WirePlumber's headset autoswitch
+  is off (`zenduo.bluetoothStereo`, `./install.sh --no-bluetooth-stereo` to
+  keep Ubuntu's behaviour). `duo doctor` and the Overview name a device that
+  is on the headset profile
+- PipeWire keeps its realtime priority when the login beats rtkit: a drop-in
+  makes pipewire, pipewire-pulse and wireplumber wait for it
+  (`zenduo.audioRealtime`), and `./install.sh --user` grants the priority to
+  the loops running now
 - `c` in the screen's Logs clears the view: it hides every line showing there
   and under Recent problems, and `C` brings them back. It used to clear the
   filter, which looked like nothing happened. Nothing is deleted; the journal

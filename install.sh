@@ -25,6 +25,8 @@
 #   --apply-method M       temporary (default) | persistent — read the config's warning first
 #   --speaker-dsp          install the EasyEffects speaker voicing chain
 #   --no-audio-buffer-floor  don't set the PipeWire buffer floor (docs/HARDWARE.md)
+#   --no-bluetooth-stereo    let a voice app drop a Bluetooth headset to its mono profile (Ubuntu's default)
+#   --no-audio-realtime      don't make PipeWire wait for rtkit at login (docs/HARDWARE.md)
 #
 # Other:
 #   --dev                  link the system install to THIS checkout instead of
@@ -48,7 +50,7 @@ TARGET_USER=""
 SYSTEM_FLAGS=()   # forwarded to system/run.sh
 USER_FLAGS=()     # forwarded to the user half when it re-runs under runuser (see below)
 WATCH_DISPLAYS=1 WATCH_FN=1 WATCH_BACKLIGHT=0 WATCH_ROTATION=0
-BATTERY_LIMIT="" APPLY_METHOD="" SPEAKER_DSP=0 AUDIO_FLOOR=1
+BATTERY_LIMIT="" APPLY_METHOD="" SPEAKER_DSP=0 AUDIO_FLOOR=1 BT_STEREO=1 AUDIO_RT=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -76,6 +78,10 @@ while [ $# -gt 0 ]; do
     --no-speaker-dsp)    SPEAKER_DSP=0; USER_FLAGS+=("$1") ;;
     --audio-buffer-floor)    AUDIO_FLOOR=1; USER_FLAGS+=("$1") ;;
     --no-audio-buffer-floor) AUDIO_FLOOR=0; USER_FLAGS+=("$1") ;;
+    --bluetooth-stereo)      BT_STEREO=1; USER_FLAGS+=("$1") ;;
+    --no-bluetooth-stereo)   BT_STEREO=0; USER_FLAGS+=("$1") ;;
+    --audio-realtime)        AUDIO_RT=1; USER_FLAGS+=("$1") ;;
+    --no-audio-realtime)     AUDIO_RT=0; USER_FLAGS+=("$1") ;;
     -h|--help)           sed -n '2,/^[^#]/{/^[^#]/!p}' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
@@ -93,7 +99,8 @@ case "${APPLY_METHOD:-temporary}" in temporary|persistent) ;; *) die "--apply-me
 # forwarded, then stop before anything is touched.
 if [ "${ZENDUO_INSTALL_PLAN:-0}" = 1 ]; then
   for v in DO_SYSTEM DO_USER DRY_RUN FORCE PREFIX TARGET_USER WATCH_DISPLAYS WATCH_FN \
-           WATCH_BACKLIGHT WATCH_ROTATION BATTERY_LIMIT APPLY_METHOD SPEAKER_DSP AUDIO_FLOOR; do
+           WATCH_BACKLIGHT WATCH_ROTATION BATTERY_LIMIT APPLY_METHOD SPEAKER_DSP AUDIO_FLOOR \
+           BT_STEREO AUDIO_RT; do
     printf '%s=%s\n' "$v" "${!v}"
   done
   printf 'SYSTEM_FLAGS=%s\n' "${SYSTEM_FLAGS[*]}"
@@ -253,6 +260,78 @@ user_phase() {
   elif [ -e "$floor_dst" ]; then
     log "audio buffer floor: removing $floor_dst"
     [ "$DRY_RUN" = 1 ] || rm -f "$floor_dst"
+  fi
+
+  # 5b. Bluetooth stays in stereo. WirePlumber's stock policy drops a headset
+  #     to its mono 16 kHz profile the moment a voice app opens the microphone,
+  #     for every app's sound, and puts it back when the app stops. The files
+  #     say why; docs/HARDWARE.md has the measurements.
+  local wp_dir wp_src wp_dst wp_changed=0
+  wp_dir="${XDG_CONFIG_HOME:-$HOME/.config}/wireplumber"
+  for wp_src in "$SRC/config/wireplumber/11-zenduo-bluetooth-stereo.lua" "$SRC/config/wireplumber/zenduo-bluetooth-stereo.conf"; do
+    case "$wp_src" in
+      *.lua) wp_dst="$wp_dir/policy.lua.d/$(basename "$wp_src")" ;;        # WirePlumber 0.4
+      *)     wp_dst="$wp_dir/wireplumber.conf.d/$(basename "$wp_src")" ;;  # 0.5 and later
+    esac
+    if nix_managed "$wp_dst"; then
+      log "bluetooth stereo: $(basename "$wp_dst") is managed by home-manager"
+    elif [ "$BT_STEREO" = 1 ]; then
+      if [ "$(cat "$wp_dst" 2>/dev/null || true)" != "$(cat "$wp_src")" ]; then
+        log "bluetooth stereo: installing $wp_dst"
+        if [ "$DRY_RUN" != 1 ]; then mkdir -p "$(dirname "$wp_dst")"; cp "$wp_src" "$wp_dst"; fi
+        wp_changed=1
+      fi
+    elif [ -e "$wp_dst" ]; then
+      log "bluetooth stereo: removing $wp_dst"
+      [ "$DRY_RUN" = 1 ] || rm -f "$wp_dst"
+      wp_changed=1
+    fi
+  done
+  if [ "$wp_changed" = 0 ]; then
+    if [ "$BT_STEREO" = 1 ]; then log "bluetooth stereo: up to date"; else log "bluetooth stereo: off"; fi
+  else
+    # WirePlumber reads its policy when it starts. Restarting it re-creates
+    # every device node, and a Pulse client in a call (Discord, 2026-09-20)
+    # came out of that with its streams unlinked until it rejoined, so the
+    # restart is left to you rather than done mid-call.
+    log "bluetooth stereo: takes effect at the next login, or now with: systemctl --user restart wireplumber (rejoin a call afterwards)"
+  fi
+
+  # 5c. PipeWire asks rtkit for realtime once, at start, and a quick login
+  #     starts it before rtkit is up. The drop-in makes the next start wait;
+  #     the loops running now are given the priority directly, since the only
+  #     other way is a re-login.
+  local rt_src rt_dst rt_unit rt_changed=0 rt_what
+  rt_src="$SRC/config/systemd/user/10-zenduo-rtkit.conf"
+  for rt_unit in pipewire pipewire-pulse wireplumber; do
+    rt_dst="$units_dst/$rt_unit.service.d/$(basename "$rt_src")"
+    if nix_managed "$rt_dst"; then
+      log "audio realtime: the $rt_unit drop-in is managed by home-manager"
+    elif [ "$AUDIO_RT" = 1 ]; then
+      if [ "$(cat "$rt_dst" 2>/dev/null || true)" != "$(cat "$rt_src")" ]; then
+        log "audio realtime: installing $rt_dst"
+        if [ "$DRY_RUN" != 1 ]; then mkdir -p "$(dirname "$rt_dst")"; cp "$rt_src" "$rt_dst"; fi
+        rt_changed=1
+      fi
+    elif [ -e "$rt_dst" ]; then
+      log "audio realtime: removing $rt_dst"
+      [ "$DRY_RUN" = 1 ] || rm -f "$rt_dst"
+      rt_changed=1
+    fi
+  done
+  if [ "$rt_changed" = 0 ]; then
+    if [ "$AUDIO_RT" = 1 ]; then log "audio realtime: drop-ins up to date"; else log "audio realtime: off"; fi
+  else
+    run systemctl --user daemon-reload
+  fi
+  if [ "$AUDIO_RT" = 1 ] && [ "$DRY_RUN" != 1 ]; then
+    while IFS=$'\t' read -r rt_unit _ _ _ rt_what; do
+      [ -n "$rt_unit" ] || continue
+      case "$rt_what" in
+        granted)  log "audio realtime: $rt_unit given realtime priority now (it had none)" ;;
+        refused*) warn "audio realtime: $rt_unit: $rt_what" ;;
+      esac
+    done <<<"$(python3 "$SRC/lib/audio_probe.py" realtime --grant 2>/dev/null || true)"
   fi
 
   # 6. one more thing the dock daemon cannot do for you on a fresh machine

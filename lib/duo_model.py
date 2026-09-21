@@ -37,7 +37,8 @@ PYGI = os.environ.get("DUO_PYGI", "/usr/bin/python3")
 AMP_CHECK = "/usr/local/sbin/duo-cs35l41-check"
 
 sys.path.insert(0, HERE)
-import dock  # noqa: E402  (same directory)
+import audio_probe  # noqa: E402  (same directory)
+import dock  # noqa: E402
 import kb_backlight  # noqa: E402
 import monitors_xml  # noqa: E402
 import speaker_dsp  # noqa: E402
@@ -455,6 +456,8 @@ class Glance:
     helper: bool = False
     udev: bool = False
     amp_state: str = ""                              # ok | failed | unknown | ""
+    bluetooth: list = field(default_factory=list)    # audio_probe.bluetooth_profiles()
+    realtime: list = field(default_factory=list)     # audio_probe.data_loops()
     session: str = ""
     dsp_installed: bool = False                      # the EasyEffects db is seeded
 
@@ -613,6 +616,7 @@ class Model:
         self.version = 0
         self.amp_state = ""
         self._amp_at = 0.0
+        self.bluetooth, self.realtime = [], []
         self.errors = []       # reader failures, shown once each
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -630,6 +634,7 @@ class Model:
     def refresh_fast(self):
         g = read_glance()
         g.amp_state = self.amp_state
+        g.bluetooth, g.realtime = self.bluetooth, self.realtime
         self.glance = g
         self.units = read_units()
         self.bump()
@@ -642,6 +647,11 @@ class Model:
             self.amp_state = read_amp_state()
             self._amp_at = now
         self.glance.amp_state = self.amp_state
+        # pw-dump and three systemctl calls: cheap, and the profile is what
+        # turns a game's sound into a phone call, so it belongs on Overview.
+        self.bluetooth = audio_probe.bluetooth_profiles(audio_probe.read_pw_dump())
+        self.realtime = audio_probe.data_loops(audio_probe.unit_pids())
+        self.glance.bluetooth, self.glance.realtime = self.bluetooth, self.realtime
         self.config_path, self.config, self.config_hm, self.config_error = read_config()
         want = self._wanted["displays"] if displays is None else displays
         if want:

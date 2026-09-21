@@ -53,6 +53,26 @@ user_half() {
       rm -f "$floor"; log "removed $floor"
     fi
   fi
+  # The WirePlumber policy and the rtkit drop-ins. WirePlumber only reads its
+  # policy at start.
+  local wp_dir wp_removed=0
+  wp_dir="${XDG_CONFIG_HOME:-$HOME/.config}/wireplumber"
+  for f in "$wp_dir/policy.lua.d/11-zenduo-bluetooth-stereo.lua" "$wp_dir/wireplumber.conf.d/zenduo-bluetooth-stereo.conf" \
+           "$d/pipewire.service.d/10-zenduo-rtkit.conf" "$d/pipewire-pulse.service.d/10-zenduo-rtkit.conf" \
+           "$d/wireplumber.service.d/10-zenduo-rtkit.conf"; do
+    [ -e "$f" ] || continue
+    if nix_managed "$f"; then
+      warn "$(basename "$f") is managed by home-manager, remove it there"
+      continue
+    fi
+    rm -f "$f"; log "removed $f"
+    rmdir "$(dirname "$f")" 2>/dev/null || true
+    case "$f" in "$wp_dir"/*) wp_removed=1 ;; esac
+  done
+  systemctl --user daemon-reload 2>/dev/null || true
+  if [ "$wp_removed" = 1 ]; then
+    log "the Bluetooth policy is gone at the next login, or now with: systemctl --user restart wireplumber"
+  fi
   if [ "$PURGE" = 1 ]; then
     python3 lib/speaker_dsp.py uninstall || true
     rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/zenduo" "${XDG_STATE_HOME:-$HOME/.local/state}/zenduo"

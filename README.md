@@ -29,6 +29,8 @@ OLED flicker is gone.
 | Battery charge limit (e.g. 80 %) re-applied at every login | MyASUS | `duo bat-limit`, `BATTERY_LIMIT` in the config | ✅ |
 | Speaker voicing: high-pass, bass psychoacoustics, staged compressor, limiter | harman/kardon APO | `duo speaker-dsp` (EasyEffects chain, one definition for Nix and non-Nix) | ✅ measured, see [nix/audio.nix](nix/audio.nix) |
 | Sound survives an app asking for a tiny buffer, instead of the device wedging and silencing everything (Roblox does it; browser video stalls with it) | — | a PipeWire buffer floor, on by default (`zenduo.audioBufferFloor`) | ✅ measured 2026-09-19 |
+| Bluetooth earbuds stay in stereo when Discord or a browser opens the microphone, instead of every app dropping to mono phone quality | Windows keeps "Headset" and "Headphones" apart and never switches on its own | a WirePlumber policy, on by default (`zenduo.bluetoothStereo`) | ✅ measured 2026-09-20 |
+| The audio server keeps its realtime priority when the login beats rtkit | n/a | a unit drop-in that waits for rtkit, on by default (`zenduo.audioRealtime`) | ✅ measured 2026-09-20 |
 | Loud notice when the speaker amps come up unprotected after a Windows Fast-Startup boot | — | `duo-cs35l41-check` system service | ✅ |
 | Palm rejection on the detachable touchpad while typing | ASUS driver | libinput quirk + GNOME's disable-while-typing | ✅ |
 | No OLED flicker | ASUS driver | `i915.enable_psr=0` on the kernel command line | ✅ |
@@ -314,6 +316,14 @@ dotfiles ([JowiAoun/dome](https://github.com/JowiAoun/dome)) consume it.
   What triggers it is a stall long enough to underrun a 682 ms buffer, which
   in practice means the machine is swapping: check `free -h` and
   `cat /proc/pressure/io` before blaming the driver. Details:
+  [docs/HARDWARE.md](docs/HARDWARE.md#speakers).
+- **Sound on Bluetooth earbuds turns to mono phone quality (static,
+  muffled) when a call or a game with voice chat starts, and comes back
+  after.** WirePlumber moved the earbuds to their headset profile because a
+  voice app opened the microphone. `duo doctor` says which device is on it.
+  Put it back now with `wpctl set-profile <device id> <A2DP profile index>`
+  (`wpctl status` lists both), and install the policy that stops the switch:
+  `./install.sh --user`. Details:
   [docs/HARDWARE.md](docs/HARDWARE.md#speakers).
 - **Wi-Fi drops when the keyboard is detached.** Kernel < 6.11. `duo doctor`
   warns about it.

@@ -43,6 +43,8 @@ What the machine does under Windows, whether it does it here, and how.
 |---|---|---|
 | Speaker voicing (harman/kardon APO) | `duo speaker-dsp`: EasyEffects chain | ✅ Nix EE 8; 🧪 apt EE 7 (preset ships, autoload manual) → phase S |
 | Amps always initialised | reporter + power-off recovery; root cause is Windows Fast Startup | ✅ (as good as it can be from Linux) |
+| Bluetooth headset stays in stereo during a call (Windows keeps "Headset" and "Headphones" apart) | WirePlumber policy file, on by default (`zenduo.bluetoothStereo`) | ✅ measured 2026-09-20 |
+| The audio server keeps realtime priority | drop-in that waits for rtkit (`zenduo.audioRealtime`) | ✅ measured 2026-09-20 |
 | Microphone processing | — | 📝 phase S |
 
 ## Power

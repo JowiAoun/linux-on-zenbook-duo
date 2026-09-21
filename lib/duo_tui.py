@@ -555,6 +555,20 @@ class Overview(View):
                "unknown": ("kernel journal not readable as this user", t.dim)}.get(gl.amp_state)
         if amp:
             row("speaker amps", amp[0], amp[1])
+        for d in gl.bluetooth:
+            if d["headset"]:
+                row("bluetooth", f"{d['description']}: headset profile, mono 16 kHz", t.warn,
+                    "phone quality for every app")
+            elif d["stereo"]:
+                row("bluetooth", f"{d['description']}: {d['profile_description']}", t.ok)
+            else:
+                row("bluetooth", f"{d['description']}: profile {d['profile'] or 'off'}", t.dim)
+        no_rt = sorted({u for u, _p, _t, pol, _r in gl.realtime if pol not in ("rr", "fifo")})
+        if no_rt:
+            row("audio realtime", "none on " + ", ".join(no_rt) + " (started before rtkit)", t.warn,
+                "./install.sh --user grants it")
+        elif gl.realtime:
+            row("audio realtime", "PipeWire's data loops at realtime priority", t.ok)
 
         head("Daemons")
         for u in m.units:

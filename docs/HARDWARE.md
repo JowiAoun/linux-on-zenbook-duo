@@ -214,6 +214,50 @@ queue, and a few hundred milliseconds of that underruns even a 682 ms buffer.
 The same stalls are what make browser video buffer forever, so a report of
 "speakers died and videos won't play" is one symptom, not two.
 
+**Bluetooth headsets drop to phone quality during a call (MEASURED
+2026-09-20).** Ubuntu's WirePlumber 0.4.17 ships `policy-bluetooth.lua` with
+`media-role.use-headset-profile = true`. When a capture stream starts whose
+`media.role` is `Communication` or whose `application.name` is on the script's
+list (Discord's `WEBRTC VoiceEngine`, every browser's `... input`, Zoom,
+Telegram, Skype, Mumble) and the default output is a Bluetooth device, it
+switches that device to its headset profile, and back two seconds after the
+last such stream stops. It checks the default sink, never where the stream
+reads, so it fires while Discord captures from the laptop's own DMIC. The
+headset profile is HFP: mSBC, mono, 16 kHz, over a SCO link, and every
+application's sound goes through it. Read off `pw-top` five minutes apart,
+Roblox playing under Sober, Discord in a voice channel, EarFun Air Pro 4 as
+the default output:
+
+    bluez_output.70_5A_6F_6B_3B_81.1   S24LE 2 48000   a2dp-sink, aptX
+    bluez_output.70_5A_6F_6B_3B_81.1   S16LE 1 16000   headset-head-unit-msbc
+
+with `Sober:output_MONO` linked to the second. That is the "sound turned
+static and low quality in the game, sometimes" report: sometimes is whenever
+a voice app holds the microphone. The fix is a WirePlumber policy file,
+[../config/wireplumber/11-zenduo-bluetooth-stereo.lua](../config/wireplumber/11-zenduo-bluetooth-stereo.lua)
+(with a `.conf` twin for WirePlumber 0.5), on by default
+(`zenduo.bluetoothStereo`, `./install.sh --no-bluetooth-stereo` to skip). The
+headset then stays on A2DP and a voice app gets the internal microphone; the
+earbuds' own microphone is a manual profile choice in Settings, as it is on
+Windows. `duo doctor` and the Overview name a device that is on the headset
+profile, and `wpctl set-profile <device> <index>` puts it back by hand.
+
+**PipeWire can start without realtime priority (MEASURED 2026-09-20).**
+PipeWire's data loops ask rtkit for realtime once, at start. `rtkit-daemon`
+is started by D-Bus on first use, and a login quick enough starts the user's
+PipeWire first: this boot `pipewire.service` started at 21:04:42, rtkit logged
+"Running" at 21:04:43 and never logged a request from it, and `pipewire`,
+`pipewire-pulse` and `wireplumber` ran their data loops as `SCHED_OTHER` for
+the session (`ps -eLo cls,rtprio,comm`). Two of the last five boots ran that
+way; in the other three PipeWire started 6 to 11 seconds after rtkit and got
+`RR 20`. Asked again later with `MakeThreadRealtimeWithPID`, rtkit granted
+the same threads priority 20 at once, so nothing but the order is wrong. The
+fix is a drop-in for the three units,
+[../config/systemd/user/10-zenduo-rtkit.conf](../config/systemd/user/10-zenduo-rtkit.conf),
+whose `ExecStartPre` asks rtkit for a property, which starts it and waits for
+it, before the service starts. `./install.sh --user` also grants the priority
+to the loops running now, and `duo doctor` says which loops lack it.
+
 ## Dual boot
 
 The factory disk has **five** partitions, not four: `p1` ESP (~273 MB, flags
