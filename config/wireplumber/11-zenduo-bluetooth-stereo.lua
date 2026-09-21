@@ -28,10 +28,11 @@
 -- ── What this file does ─────────────────────────────────────────────────────
 -- Turns the automatic switch off. The headset stays on A2DP; a voice app gets
 -- the microphone it asked for, which on this machine is the internal array by
--- default. To use the earbuds' own microphone, pick the "Headset Head Unit"
--- profile in Settings > Sound for the call and switch back afterwards, which
--- is also what Windows makes you do: it exposes "Headset" and "Headphones" as
--- two devices and never moves a stream between them on its own.
+-- default. To use the earbuds' own microphone, run `duo audio headset` (or
+-- pick "Headset Head Unit" in Settings > Sound) for the call and `duo audio
+-- stereo` afterwards, which is also what Windows makes you do: it exposes
+-- "Headset" and "Headphones" as two devices and never moves a stream between
+-- them on its own.
 --
 -- Loaded by WirePlumber 0.4 from policy.lua.d/, after 10-default-policy.lua
 -- sets the default and before 90-enable-all.lua reads it. WirePlumber 0.5 and

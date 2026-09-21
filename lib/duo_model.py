@@ -905,6 +905,15 @@ class Model:
     def speaker_dsp(self, verb):
         return cli("speaker-dsp", verb, timeout=60)
 
+    def audio(self, verb, device=""):
+        """`duo-cli audio stereo|headset [DEVICE]`; the Bluetooth row is read
+        again right away instead of waiting for the slow refresh."""
+        r = cli("audio", verb, *([device] if device else []), timeout=20)
+        self.bluetooth = audio_probe.bluetooth_profiles(audio_probe.read_pw_dump())
+        self.glance.bluetooth = self.bluetooth
+        self.bump()
+        return r
+
     def login_layout(self):
         return cli("layout", "login")
 

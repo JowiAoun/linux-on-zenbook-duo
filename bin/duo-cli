@@ -99,6 +99,9 @@ usage: duo-cli <command>        (duo <command> runs the same thing)
                          from the config file)
   speaker-dsp <install|status|uninstall|seed|preset>
                          EasyEffects voicing chain for the built-in speakers
+  audio [status|stereo|headset|profiles|profile NAME] [DEVICE]
+                         what plays where; put a Bluetooth headset on its stereo
+                         (A2DP) or headset (own mic, mono) profile
   set-tablet-mapping     map each touchscreen to its own panel (GNOME 46+)
   watch-rotation         daemon: follow accelerometer orientation (EXPERIMENTAL)
   fn-probe               interactively inventory what the Fn keys emit
@@ -472,7 +475,7 @@ cmd_doctor() {
     while IFS=$'\t' read -r bt_name bt_desc bt_prof bt_profdesc; do
       [ -n "$bt_name" ] || continue
       case "$bt_prof" in
-        headset-head-unit*) ck WARN 0 "Bluetooth: $bt_desc is on its headset profile ($bt_profdesc): every app plays mono 16 kHz through it; pick an A2DP profile in Settings > Sound" ;;
+        headset-head-unit*) ck WARN 0 "Bluetooth: $bt_desc is on its headset profile ($bt_profdesc): every app plays mono 16 kHz through it; \`duo audio stereo\` puts it back" ;;
         ""|off)             ck INFO 0 "Bluetooth: $bt_desc connected, no audio profile active" ;;
         *)                  ck PASS 0 "Bluetooth: $bt_desc on $bt_profdesc" ;;
       esac
@@ -953,6 +956,10 @@ cmd_config() {
   esac
 }
 
+cmd_audio() {
+  python3 "$LIB/audioctl.py" "$@"
+}
+
 cmd_speaker_dsp() {
   [ -n "${1:-}" ] || usage
   python3 "$LIB/speaker_dsp.py" "$@"
@@ -1013,6 +1020,7 @@ case "$cmd" in
   kb-backlight)       cmd_kb_backlight "$@" ;;
   bat-limit)          cmd_bat_limit "$@" ;;
   speaker-dsp)        cmd_speaker_dsp "$@" ;;
+  audio)              cmd_audio "$@" ;;
   set-tablet-mapping) cmd_set_tablet_mapping "$@" ;;
   watch-rotation)     cmd_watch_rotation "$@" ;;
   fn-probe)           cmd_fn_probe "$@" ;;

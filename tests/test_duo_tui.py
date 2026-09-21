@@ -133,6 +133,8 @@ class RenderTest(unittest.TestCase):
             self.assertIn(name, text)
             self.assertLessEqual(max(len(line) for line in text.splitlines()), 100)
             self.assertEqual(len(text.splitlines()), 30)
+            # the key hint has to fit whole: a cut-off "q quit" helps nobody
+            self.assertTrue(text.splitlines()[-1].endswith("q quit"), name)
 
     def test_overview_says_what_matters(self):
         app = app_for()
@@ -292,6 +294,23 @@ class KeysTest(unittest.TestCase):
         app.handle_key(10)
         self.assertIsInstance(app.modal, tui.Notice)
         self.assertIn("priority 5", app.render_text(100, 30))
+
+    def test_B_offers_the_headset_its_two_profiles_through_duo_cli(self):
+        app = app_for()
+        calls = []
+        app.model.audio = lambda verb, device="": (calls.append((verb, device)), dm.Result(True, f"duo audio {verb}", "audio: on a2dp-sink"))[1]
+        app.handle_key(ord("B"))
+        self.assertIsInstance(app.modal, tui.Notice)      # nothing connected
+        app.handle_key(tui.KEY_ESC)
+        app.model.glance.bluetooth = [{"name": "bluez_card.x", "description": "EarFun Air Pro 4",
+                                       "profile": "headset-head-unit-msbc", "profile_description": "HSP/HFP",
+                                       "stereo": False, "headset": True}]
+        app.handle_key(ord("B"))
+        self.assertIsInstance(app.modal, tui.Menu)
+        self.assertIn("EarFun Air Pro 4", app.render_text(100, 30))
+        app.handle_key(10)                                # the first item: stereo
+        self.assertEqual(calls, [("stereo", "EarFun Air Pro 4")])
+        self.assertEqual(app.status[1], "ok")
 
     def test_overview_l_opens_the_same_lines_in_logs(self):
         app = app_for()

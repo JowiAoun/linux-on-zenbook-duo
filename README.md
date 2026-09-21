@@ -184,9 +184,10 @@ Six views, picked with `1`-`6` or Tab:
 - **Overview**: panels, keyboard, dock policy, backlights, battery limit,
   speaker amps, every daemon's state, and the last warnings and errors from
   the journal. `k` sets the keyboard backlight, `b` the battery limit,
-  `a` enforces the dock policy once, `R` restarts the daemons. The problem
-  list takes the arrow keys and Enter; `l` opens the same lines in Logs and
-  `c` clears them.
+  `a` enforces the dock policy once, `B` switches the Bluetooth headset
+  between stereo and its own mic, `R` restarts the daemons. The problem list
+  takes the arrow keys and Enter; `l` opens the same lines in Logs and `c`
+  clears them.
 - **Services**: each feature with its unit state, restart count and last exit
   code, and the recent errors from that unit alone. `e` enable, `d` disable,
   `r` restart, `s` start or stop, `l` its logs. System features show the
@@ -235,6 +236,9 @@ duo kb-backlight 0..3      keyboard backlight — native LED if the kernel has i
 duo kb-backlight --show    print the remembered level
 duo bat-limit [20..100]    battery charge-limit threshold (no value = the config's)
 duo speaker-dsp <cmd>      install | status | uninstall | seed | preset
+duo audio                  what plays where, and which profile the Bluetooth headset is on
+duo audio stereo|headset   put the headset on A2DP (stereo) or on its own mic (mono 16 kHz)
+duo audio profiles         every profile it offers; `duo audio profile NAME` picks any of them
 duo set-tablet-mapping     pin each ELAN touchscreen to its own panel (GNOME 46+)
 duo watch-rotation         EXPERIMENTAL: log accelerometer orientation events
 duo fn-probe               inventory what the Fn keys actually emit (raw hex)
@@ -320,10 +324,9 @@ dotfiles ([JowiAoun/dome](https://github.com/JowiAoun/dome)) consume it.
 - **Sound on Bluetooth earbuds turns to mono phone quality (static,
   muffled) when a call or a game with voice chat starts, and comes back
   after.** WirePlumber moved the earbuds to their headset profile because a
-  voice app opened the microphone. `duo doctor` says which device is on it.
-  Put it back now with `wpctl set-profile <device id> <A2DP profile index>`
-  (`wpctl status` lists both), and install the policy that stops the switch:
-  `./install.sh --user`. Details:
+  voice app opened the microphone. `duo doctor` says which device is on it
+  and `duo audio stereo` puts it back; install the policy that stops the
+  switch with `./install.sh --user`. Details:
   [docs/HARDWARE.md](docs/HARDWARE.md#speakers).
 - **Wi-Fi drops when the keyboard is detached.** Kernel < 6.11. `duo doctor`
   warns about it.

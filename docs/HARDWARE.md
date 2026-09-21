@@ -240,7 +240,9 @@ a voice app holds the microphone. The fix is a WirePlumber policy file,
 headset then stays on A2DP and a voice app gets the internal microphone; the
 earbuds' own microphone is a manual profile choice in Settings, as it is on
 Windows. `duo doctor` and the Overview name a device that is on the headset
-profile, and `wpctl set-profile <device> <index>` puts it back by hand.
+profile; `duo audio stereo` puts it back, `duo audio headset` is the manual
+choice of its own microphone, and both read the device back before they
+report success.
 
 **PipeWire can start without realtime priority (MEASURED 2026-09-20).**
 PipeWire's data loops ask rtkit for realtime once, at start. `rtkit-daemon`

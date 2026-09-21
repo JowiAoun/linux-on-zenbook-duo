@@ -473,10 +473,11 @@ class View:
 
 class Overview(View):
     name = "Overview"
-    hint = "k backlight  b battery  a dock policy  d doctor  l logs  c clear  R restart"
+    hint = "k backlight  b battery  B bluetooth  a dock policy  d doctor  l logs  R restart"
     help_lines = (
         "k        set the keyboard backlight level (0-3)",
         "b        set the battery charge limit and apply it now",
+        "B        put the Bluetooth headset on its stereo (A2DP) or headset (own mic, mono) profile",
         "a        enforce the dock policy once (drops a manual layout override)",
         "d        open Doctor and run it",
         "l        the same problems in Logs, errors only",
@@ -558,9 +559,9 @@ class Overview(View):
         for d in gl.bluetooth:
             if d["headset"]:
                 row("bluetooth", f"{d['description']}: headset profile, mono 16 kHz", t.warn,
-                    "phone quality for every app")
+                    "phone quality; B switches")
             elif d["stereo"]:
-                row("bluetooth", f"{d['description']}: {d['profile_description']}", t.ok)
+                row("bluetooth", f"{d['description']}: {d['profile_description']}", t.ok, "B switches")
             else:
                 row("bluetooth", f"{d['description']}: profile {d['profile'] or 'off'}", t.dim)
         no_rt = sorted({u for u, _p, _t, pol, _r in gl.realtime if pol not in ("rr", "fifo")})
@@ -590,7 +591,7 @@ class Overview(View):
             "" if gl.helper and gl.udev else "sudo ./install.sh --system")
 
         cleared = time.strftime("%H:%M:%S", time.localtime(m.cleared_at)) if m.cleared_at else ""
-        head("Recent problems" + (f"   (cleared at {cleared}; C brings them back)" if cleared else ""))
+        head("Recent problems" + (f"   (cleared at {cleared}; C brings them back)" if cleared else "   (c clears)"))
         avail = max(1, r.y + r.h - y)
         problems = self.problems()
         if m.journal_error:
@@ -631,6 +632,18 @@ class Overview(View):
             app.open_modal(Menu("Keyboard backlight", items))
         elif ch == ord("b"):
             app.edit_knob(dm.KNOB_BY_KEY["BATTERY_LIMIT"])
+        elif ch == ord("B"):
+            devs = m.glance.bluetooth
+            if not devs:
+                app.notice("Bluetooth", ["no Bluetooth audio device is connected"], "warn")
+                return True
+            d = devs[0]
+            desc = d["description"]
+            items = [("stereo", "A2DP: stereo, 48 kHz; calls use the laptop's mic",
+                      lambda: app.act(lambda: m.audio("stereo", desc))),
+                     ("headset", "its own mic, and mono 16 kHz for everything that plays",
+                      lambda: app.act(lambda: m.audio("headset", desc)))]
+            app.open_modal(Menu(desc, items))
         elif ch == ord("a"):
             app.act(m.apply_displays)
         elif ch == ord("d"):
@@ -1454,8 +1467,8 @@ class App:
         elif m.errors:
             cv.put(h - 2, 2, fit(f" {m.errors[-1]} ", w - 4, g), t.warn)
         # The nav column already shows the view numbers, so the tail stays short:
-        # every view's own keys have to fit on an 80-column terminal.
-        hint = f"{view.hint}   {g.dot} ? help  q quit"
+        # every view's own keys have to fit on a 100-column terminal.
+        hint = f"{view.hint}   ? help  q quit"
         cv.put(h - 1, 0, fit(" " + hint, w, g), t.dim)
         if self.modal is not None:
             self.modal.render(self, cv, Region(1, 0, h - 2, w))

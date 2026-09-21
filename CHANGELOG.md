@@ -41,6 +41,10 @@
   is off (`zenduo.bluetoothStereo`, `./install.sh --no-bluetooth-stereo` to
   keep Ubuntu's behaviour). `duo doctor` and the Overview name a device that
   is on the headset profile
+- `duo audio` says what plays where and which profile a Bluetooth headset is
+  on; `duo audio stereo` and `duo audio headset` switch it (and read it back),
+  `duo audio profiles` lists every profile. `B` on the screen's Overview does
+  the same
 - PipeWire keeps its realtime priority when the login beats rtkit: a drop-in
   makes pipewire, pipewire-pulse and wireplumber wait for it
   (`zenduo.audioRealtime`), and `./install.sh --user` grants the priority to
