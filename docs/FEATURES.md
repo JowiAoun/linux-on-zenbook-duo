@@ -16,7 +16,7 @@ What the machine does under Windows, whether it does it here, and how.
 | Second-screen key toggles the bottom panel | `5a 6a` → `duo toggle`; ignored while docked (the panel is under the keyboard) | ✅ |
 | Brightness keys drive both panels | GNOME's own StepUp/StepDown (with OSD) then the bottom panel is synced | ✅ |
 | Auto-rotate: tent, book, portrait | `duo watch-rotation` logs orientation | 🧪 → phase O |
-| Touch and pen land on the right panel | `duo set-tablet-mapping` (GNOME 46 dconf) | 🧪 → phase P |
+| Touch and pen land on the right panel | `watch-displays` pins each digitizer at start; `duo set-tablet-mapping` by hand (4-value GNOME setting, connector included) | 🧪 written 2026-09-27, not yet applied → phase P |
 | No OLED flicker | `i915.enable_psr=0` | ✅ |
 | ScreenXpert app launcher / window-throw between panels | — | 📝 phase U |
 | Six-finger virtual keyboard gesture | GNOME's on-screen keyboard appears when no keyboard is present | ✖ (phase U covers the useful part) |

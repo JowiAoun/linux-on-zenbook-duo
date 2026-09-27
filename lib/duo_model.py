@@ -104,6 +104,7 @@ KNOBS = [
     Knob("DOCK_POLICY", "bool", "0 keeps watch-displays running but makes it watch without acting", daemon="watch-displays"),
     Knob("REMEMBER_LAYOUT", "bool", "remember the layout per set of connected monitors, the way Windows does", daemon="watch-displays"),
     Knob("LOGIN_SCREEN_LAYOUT", "bool", "give the GDM login screen the same layouts (needs the root helper)", daemon="watch-displays"),
+    Knob("TOUCH_MAPPING", "bool", "pin each panel's touch and pen to that panel; GNOME alone puts both on the top one", daemon="watch-displays"),
 ]
 
 KNOB_BY_KEY = {k.key: k for k in KNOBS}
@@ -886,6 +887,10 @@ class Model:
             self.displays, self.layout_lines, self.displays_error = read_displays()
         self.bump()
         return r
+
+    def touch_mapping(self, *flags):
+        """`duo-cli set-tablet-mapping [--show]`."""
+        return cli("set-tablet-mapping", *flags)
 
     def apply_displays(self):
         r = cli("apply-displays")

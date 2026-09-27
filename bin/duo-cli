@@ -35,6 +35,7 @@ export ZENDUO_DOCK_POLICY="${ZENDUO_DOCK_POLICY:-$(conf_get DOCK_POLICY)}"
 export ZENDUO_KB_BACKLIGHT_RESTORE="${ZENDUO_KB_BACKLIGHT_RESTORE:-$(conf_get KB_BACKLIGHT_RESTORE)}"
 export ZENDUO_REMEMBER_LAYOUT="${ZENDUO_REMEMBER_LAYOUT:-$(conf_get REMEMBER_LAYOUT)}"
 export ZENDUO_LOGIN_SCREEN_LAYOUT="${ZENDUO_LOGIN_SCREEN_LAYOUT:-$(conf_get LOGIN_SCREEN_LAYOUT)}"
+export ZENDUO_TOUCH_MAPPING="${ZENDUO_TOUCH_MAPPING:-$(conf_get TOUCH_MAPPING)}"
 
 KBD_VID=0b05
 KBD_PID=1b2c
@@ -102,7 +103,9 @@ usage: duo-cli <command>        (duo <command> runs the same thing)
   audio [status|stereo|headset|profiles|profile NAME] [DEVICE]
                          what plays where; put a Bluetooth headset on its stereo
                          (A2DP) or headset (own mic, mono) profile
-  set-tablet-mapping     map each touchscreen to its own panel (GNOME 46+)
+  set-tablet-mapping [--show|--identify|--reset]
+                         pin each panel's touch and pen to that panel (GNOME 46+);
+                         --identify: touch the bottom screen, see which controller answers
   watch-rotation         daemon: follow accelerometer orientation (EXPERIMENTAL)
   fn-probe               interactively inventory what the Fn keys emit
   fn-map [--show]        guided wizard: press each Fn key -> build a key map (--show: print it)
@@ -417,20 +420,29 @@ cmd_doctor() {
 
   echo
   echo "-- touch digitizers (V7/V10) --"
-  if [ -r /proc/bus/input/devices ]; then
-    if grep -qi 'Vendor=04f3 Product=4259' /proc/bus/input/devices; then
-      ck PASS 0 "top digitizer ELAN9008 04f3:4259 present"
+  # By ACPI name: the product ids differ between units (lib/touch_map.py).
+  local tm_acpi tm_where tm_found tm_dev
+  for tm_acpi in ELAN9008 ELAN9009; do
+    tm_where="top"; [ "$tm_acpi" = ELAN9009 ] && tm_where="bottom"
+    tm_found=""
+    for tm_dev in /sys/bus/i2c/devices/i2c-"$tm_acpi":*/*:*:*.*; do
+      if [ -e "$tm_dev" ]; then tm_found="$(basename "$tm_dev")"; break; fi
+    done
+    if [ -n "$tm_found" ]; then
+      ck PASS 0 "$tm_where digitizer $tm_acpi present (HID ${tm_found%.*})"
     else
-      ck WARN 0 "top digitizer 04f3:4259 not found"
+      ck WARN 0 "$tm_where digitizer $tm_acpi not found"
     fi
-    if grep -qi 'Vendor=04f3 Product=42ec' /proc/bus/input/devices; then
-      ck PASS 0 "bottom digitizer ELAN9009 04f3:42ec present"
-    else
-      ck WARN 0 "bottom digitizer 04f3:42ec not found"
-    fi
-  else
-    ck WARN 0 "/proc/bus/input/devices unreadable — skipping digitizer check"
-  fi
+  done
+  # Whether each panel's touch and pen land on that panel: GNOME's own guess
+  # puts both on the top one.
+  local tm_out="" tm_rc=0
+  tm_out="$("$PYGI" "$LIB/touch_map.py" --check 2>&1)" || tm_rc=$?
+  case "$tm_rc" in
+    0) ck PASS 0 "$tm_out" ;;
+    1) ck WARN 0 "$tm_out" ;;
+    *) ck INFO 0 "touch mapping not checked: ${tm_out:-touch_map.py exited $tm_rc}" ;;
+  esac
 
   echo
   echo "-- sensors --"
@@ -725,26 +737,10 @@ cmd_bat_limit() {
 # ── tablet mapping / rotation / fn-probe ─────────────────────────────────────
 
 cmd_set_tablet_mapping() {
-  command -v dconf >/dev/null 2>&1 || { log "dconf not found — GNOME session required"; return 1; }
-  # Ask Mutter which vendor/product/serial each panel reports, then pin each
-  # ELAN digitizer to its panel (GNOME 46+ honors these keys; V7).
-  "$PYGI" - "$LIB/displayctl.py" <<'PYEOF'
-import json, subprocess, sys
-state = json.loads(subprocess.check_output(
-    [sys.executable, sys.argv[1], "state", "--json"], text=True))
-mons = state["monitors"]
-pairs = [("04f3:4259", "eDP-1"), ("04f3:42ec", "eDP-2")]
-for digitizer, connector in pairs:
-    mon = mons.get(connector)
-    if not mon:
-        print(f"set-tablet-mapping: {connector} not present — skipping {digitizer}")
-        continue
-    value = json.dumps([mon["vendor"], mon["product"], mon["serial"]]).replace('"', "'")
-    key = f"/org/gnome/desktop/peripherals/touchscreens/{digitizer}/output"
-    subprocess.run(["dconf", "write", key, value], check=True)
-    print(f"set-tablet-mapping: {digitizer} -> {connector} {value}")
-PYEOF
-  log "tablet mapping written (VERIFY-ON-HW: docs/PLAN.md phase P)"
+  # touch_map.py asks Mutter for the panels' EDIDs, so it runs under the python
+  # that has PyGObject, like displayctl. The reasons it writes four values and
+  # not the three GNOME documents are at the top of that file.
+  "$PYGI" "$LIB/touch_map.py" "$@"
 }
 
 cmd_watch_rotation() {

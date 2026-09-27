@@ -57,3 +57,10 @@ REMEMBER_LAYOUT=1
 # first time. On a shared machine the last person to change layouts sets what
 # the login screen uses.
 LOGIN_SCREEN_LAYOUT=1
+
+# Pin each panel's touchscreen and pen to that panel. Left alone, GNOME puts
+# both touchscreens on the top panel, so touching the bottom screen moves
+# things on the top one. watch-displays writes GNOME's own setting once when it
+# starts (`duo set-tablet-mapping` does it by hand), and leaves a touchscreen
+# you mapped to another monitor alone. 0 leaves GNOME's settings untouched.
+TOUCH_MAPPING=1

@@ -17,7 +17,7 @@ kept so code comments and the research stay cross-referenced.
 | Keyboard, USB (pogo pins) | `0b05:1b2c` "ASUS Zenbook Duo Keyboard", six HID interfaces, hid-generic + hid-multitouch |
 | Keyboard, Bluetooth | `0b05:1b2d` — same keyboard, different product id per transport |
 | Touchpad | part of the keyboard: one external USB combo device |
-| Digitizers | top ELAN9008 `04f3:4259`, bottom ELAN9009 `04f3:42ec` |
+| Digitizers | top ELAN9008 (ACPI `I2C0.TPL0`), bottom ELAN9009 (`I2C5.TPLX`). This unit: `04f3:4259` and `04f3:42ec`; alesya-h's unit: `425b` and `425a`, so code pairs them by ACPI name. Which is which is read from alesya-h's script and agrees with the buses here; `duo set-tablet-mapping --identify` checks it on a unit |
 | Backlights | `intel_backlight` (top), `card1-eDP-2-backlight` (bottom, tracks the real level), `asus_screenpad` (reports a fixed value and does not track anything visible — never sync to it) |
 | Wi-Fi | Meteor Lake CNVi `8086:7e40`; RF module typically AX211, some units BE200 (post-suspend drops) |
 | Audio | Intel SOF `sof-audio-pci-intel-mtl`; ALC294 codec + two Cirrus CS35L41 amps |
@@ -35,7 +35,7 @@ kept so code comments and the research stay cross-referenced.
 |---|---|---|
 | V1 | Ubuntu 24.04.4 ships a 6.17 HWE kernel + Mesa 25.2 | ✅ and since moved to 7.0 |
 | V6 | Keyboard detach kills Wi-Fi below kernel 6.11 (spurious rfkill press; asus-wmi quirk `quirk_asus_zenbook_duo_kbd`) | ✅ survives detach on 6.17 |
-| V7 | Touch/pen per-panel mapping needs Mutter MR 3556 + libwacom #640 (GNOME 46+) | 📄 not yet verified with a pen |
+| V7 | Touch/pen per-panel mapping: GNOME's guess puts both touchscreens on `eDP-1`; a 4-value `output` setting (EDID + connector) fixes it on Mutter 46 | 🧪 cause read from Mutter 46.2's source 2026-09-27; fix written, not yet applied on hardware |
 | V8 | Mainline `hid-asus.c` has NO entry for `0b05:1b2c`: no native kbd backlight, no Fn layer | ✅ measured; the HID fallback is the daily path |
 | V9 | i915 second-screen regressions (6.9 line) | ✅ none on 6.17/7.0; the GA kernel stays installed as the escape hatch |
 | V10 | The ids in the table above | ✅ |
@@ -111,6 +111,25 @@ kept so code comments and the research stay cross-referenced.
   the top panel on, snapping the laptop screen back after Win+P External Only.
 - `i915.enable_psr=0`: Panel Self Refresh causes visible flicker on both OLED
   panels (the Windows driver disables it too).
+- **Touch on the bottom panel lands on the top one.** Reported 2026-09-27:
+  fingers on the bottom screen act on the top screen, while the mouse works on
+  both. No mapping was set (`dconf dump /org/gnome/desktop/peripherals/`
+  listed none), so Mutter guessed. Read from mutter 46.2
+  `src/backends/meta-input-mapper.c`: an unmapped touchscreen goes to a
+  monitor of the same physical size, else to "the laptop panel", and Mutter
+  names only `eDP-1` the laptop panel. Both panels are 306 x 187 mm to udev,
+  so both touchscreens go to `eDP-1`. GNOME's `output` setting documents three
+  values (vendor, product, serial), and those cannot help: both panels report
+  `SDC` / `0x41a0` / `0x00000000`, with the same `ATNA40CT02-0` model string
+  in the EDID (read from Mutter's `GetCurrentState` and
+  `/sys/class/drm/card1-eDP-*/edid`). Mutter 46 reads a fourth value, the
+  connector name, when two monitors share all three (`match_config()` and
+  `monitor_has_twin()`). `lib/touch_map.py` writes all four, for the finger
+  (`touchscreens/<vendor>:<product>`) and the pen (`tablets/...`) of each
+  controller. `duo-watch-displays` does it once when it starts
+  (`TOUCH_MAPPING=1`), `duo set-tablet-mapping` by hand. `--identify` asks you
+  to touch the bottom screen and reads each controller's interrupt count in
+  `/proc/interrupts`, which tells them apart with no root and no change.
 
 ## Speakers
 

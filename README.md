@@ -34,7 +34,7 @@ OLED flicker is gone.
 | Loud notice when the speaker amps come up unprotected after a Windows Fast-Startup boot | — | `duo-cs35l41-check` system service | ✅ |
 | Palm rejection on the detachable touchpad while typing | ASUS driver | libinput quirk + GNOME's disable-while-typing | ✅ |
 | No OLED flicker | ASUS driver | `i915.enable_psr=0` on the kernel command line | ✅ |
-| Touch/pen mapped to the right panel | Windows | `duo set-tablet-mapping` (GNOME 46+) | 🧪 written, not yet verified with a pen |
+| Touch and pen land on the panel you touch (GNOME alone sends both panels' touch to the top one) | Windows | `duo watch-displays` pins them at login (`TOUCH_MAPPING`), `duo set-tablet-mapping` by hand (GNOME 46+) | 🧪 cause read from Mutter's source; not yet applied on hardware |
 | Auto-rotation (tent, book, portrait) | ScreenXpert | `duo watch-rotation` | 🧪 logs orientation only |
 | Read-only hardware probe, safe on a live USB — the install gate | — | `duo doctor` | ✅ |
 
@@ -239,7 +239,9 @@ duo speaker-dsp <cmd>      install | status | uninstall | seed | preset
 duo audio                  what plays where, and which profile the Bluetooth headset is on
 duo audio stereo|headset   put the headset on A2DP (stereo) or on its own mic (mono 16 kHz)
 duo audio profiles         every profile it offers; `duo audio profile NAME` picks any of them
-duo set-tablet-mapping     pin each ELAN touchscreen to its own panel (GNOME 46+)
+duo set-tablet-mapping     pin each panel's touch and pen to that panel (GNOME 46+)
+duo set-tablet-mapping --show       what GNOME's setting says now, and what would be written
+duo set-tablet-mapping --identify   touch the bottom screen; says which controller answered
 duo watch-rotation         EXPERIMENTAL: log accelerometer orientation events
 duo fn-probe               inventory what the Fn keys actually emit (raw hex)
 duo fn-map [--show]        guided wizard: press each key -> key->report map
@@ -328,6 +330,13 @@ dotfiles ([JowiAoun/dome](https://github.com/JowiAoun/dome)) consume it.
   and `duo audio stereo` puts it back; install the policy that stops the
   switch with `./install.sh --user`. Details:
   [docs/HARDWARE.md](docs/HARDWARE.md#speakers).
+- **Touching the bottom screen moves things on the top screen.** GNOME
+  guessed the mapping and put both touchscreens on the top panel. Run
+  `duo set-tablet-mapping`; it takes effect at once, no re-login. With
+  `TOUCH_MAPPING=1` (the default) `duo-watch-displays` does the same at every
+  start. If touches then land on the wrong screens the other way round, run
+  `duo set-tablet-mapping --identify` and open an issue with its output.
+  Details: [docs/HARDWARE.md](docs/HARDWARE.md#displays).
 - **Wi-Fi drops when the keyboard is detached.** Kernel < 6.11. `duo doctor`
   warns about it.
 - **Pairing the keyboard over Bluetooth.** Detach it, slide the switch on its

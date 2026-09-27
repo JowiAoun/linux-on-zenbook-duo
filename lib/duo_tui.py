@@ -989,6 +989,8 @@ class Displays(View):
         ("forget", "drop what is remembered for this set", "layout"),
         ("login", "give the login screen these layouts (root helper)", "layout"),
         ("apply-displays", "enforce the dock policy once; drops a manual override", "apply"),
+        ("touch", "pin each panel's touch and pen to that panel", "touch"),
+        ("touch --show", "what the touch and pen settings say now", "touch"),
     )
 
     def __init__(self, app):
@@ -1065,6 +1067,8 @@ class Displays(View):
                 app.act(lambda: m.panels(verb))
             elif kind == "apply":
                 app.act(m.apply_displays)
+            elif kind == "touch":
+                app.act(lambda: m.touch_mapping(*verb.split()[1:]))
             elif verb == "forget":
                 app.open_modal(Confirm("Forget this layout",
                                        ["Drop what is remembered for the monitors connected now?",

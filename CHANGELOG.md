@@ -36,6 +36,15 @@
 
 ### Fixes
 
+- Touching the bottom screen acts on the bottom screen. GNOME guessed the
+  mapping and sent both panels' touch to the top one: the panels are the same
+  size, and Mutter calls only one of them the laptop panel. `duo-watch-displays`
+  now writes GNOME's setting for each panel's finger and pen once when it
+  starts (`TOUCH_MAPPING`, `zenduo.touchMapping`), with the connector name,
+  since both panels report the same EDID. `duo set-tablet-mapping` does it by
+  hand and now pairs the controllers by ACPI name, so a unit with other
+  product ids works too; `--show`, `--identify` and `--reset` are new, and
+  `duo doctor` says whether it is in place
 - Bluetooth earbuds no longer drop to mono phone quality for every app when
   Discord or a browser opens the microphone: WirePlumber's headset autoswitch
   is off (`zenduo.bluetoothStereo`, `./install.sh --no-bluetooth-stereo` to

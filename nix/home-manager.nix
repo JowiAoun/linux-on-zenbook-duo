@@ -29,6 +29,7 @@ let
     "ZENDUO_KB_BACKLIGHT_RESTORE=${bool01 cfg.kbBacklightRestore}"
     "ZENDUO_REMEMBER_LAYOUT=${bool01 cfg.rememberLayout}"
     "ZENDUO_LOGIN_SCREEN_LAYOUT=${bool01 cfg.loginScreenLayout}"
+    "ZENDUO_TOUCH_MAPPING=${bool01 cfg.touchMapping}"
   ];
 
   watcher = sub: description: {
@@ -60,6 +61,7 @@ let
     DOCK_POLICY=${bool01 cfg.dockPolicy}
     REMEMBER_LAYOUT=${bool01 cfg.rememberLayout}
     LOGIN_SCREEN_LAYOUT=${bool01 cfg.loginScreenLayout}
+    TOUCH_MAPPING=${bool01 cfg.touchMapping}
   '';
 in
 {
@@ -183,6 +185,22 @@ in
         is kept as monitors.xml.zenduo-backup the first time, and uninstall
         puts it back. On a shared machine the last person to change layouts
         decides what the login screen uses.
+      '';
+    };
+
+    touchMapping = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Pin each panel's touchscreen and pen to that panel. Left alone, GNOME
+        46 puts both touchscreens on the top panel: it matches a touchscreen
+        to a monitor of the same size, and the two panels are the same size.
+        The EDIDs are identical too, so the fix is the connector name as a
+        fourth value of GNOME's `output` setting, which Mutter 46 reads for
+        twin monitors. watch-displays writes it once when it starts, from
+        what Mutter reports, and leaves a touchscreen mapped by hand to
+        another monitor alone. `duo set-tablet-mapping --show` says what is
+        set; `--identify` checks which controller sits under the bottom panel.
       '';
     };
 

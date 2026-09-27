@@ -177,10 +177,13 @@ and touch landing on the right one.
 
 ### P. Touch and pen
 
-`set-tablet-mapping` writes the GNOME 46 dconf keys per digitizer. Verify with
-a pen on both panels, add `toggle-bottom-touch` for palm resting while
-drawing, and re-apply the mapping automatically when Mutter's monitor serials
-change. *Gate:* acceptance tests I-10..I-12 from the original plan.
+`lib/touch_map.py` writes GNOME's `output` setting for each digitizer's
+finger and pen, with the connector as a fourth value because the panels are
+EDID twins, and `watch-displays` applies it once per start (done in the
+terminal, 2026-09-27). Still open: verify it with a finger and a pen on both
+panels, confirm the pairing with `--identify`, and add `toggle-bottom-touch`
+for palm resting while drawing. *Gate:* acceptance tests I-10..I-12 from the
+original plan.
 
 ### Q. The rest of the Fn row
 

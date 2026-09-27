@@ -89,6 +89,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dock  # noqa: E402  (same directory)
 import displayctl  # noqa: E402  (same directory)
 import monitors_xml  # noqa: E402  (same directory)
+import touch_map  # noqa: E402  (same directory)
 
 try:
     from gi.repository import Gio, GLib  # noqa: E402
@@ -129,6 +130,10 @@ def dock_policy_on():
     return os.environ.get("ZENDUO_DOCK_POLICY", "1") == "1"
 
 
+def touch_mapping_on():
+    return os.environ.get("ZENDUO_TOUCH_MAPPING", "1") == "1"
+
+
 def log(msg):
     # stdout is the journal under the unit's SyslogIdentifier=zenduo; a
     # syslog() copy used to land there a second time under the same identifier.
@@ -158,6 +163,7 @@ class Watcher:
         self._login_pushes = []  # the `duo layout login` runs among them, checked on exit
         self._helper_stale_at = None  # mtime of a helper that could not do it (None = fine)
         self._subscribe = False  # run() sets it: every proxy gets the signal handler
+        self._touch_pending = False  # run() sets it: pin touch and pen on the first state
         self.loop = GLib.MainLoop()
 
     # ── plumbing ─────────────────────────────────────────────────────────────
@@ -444,6 +450,7 @@ class Watcher:
 
         monitors = displayctl.parse_monitors(monitors_raw)
         enabled = displayctl.enabled_connectors(logical_raw)
+        self.maybe_pin_touch(monitors)
 
         # Which monitors are connected is the key to the layout memory, and a
         # change of it is as much "the situation changed" as a dock or undock:
@@ -560,6 +567,27 @@ class Watcher:
             self.sync_bottom_backlight()
         return 0
 
+    def maybe_pin_touch(self, monitors):
+        """Pin each panel's touch and pen to that panel, once per start.
+
+        Left to itself GNOME puts both touchscreens on the top panel (the
+        reasons are in touch_map.py). The setting persists and Mutter reads it
+        again on every monitor change, so once per start is enough. Doing it
+        on the first state Mutter answers with also covers a daemon that came
+        up before gnome-shell. `duo apply-displays` (--once) never does it:
+        that command is the dock policy and nothing else.
+        """
+        if not self._touch_pending:
+            return
+        self._touch_pending = False
+        try:
+            lines = touch_map.pin(monitors)
+        except touch_map.MapError as e:
+            log(f"touch mapping not written: {e}")
+            return
+        for line in lines:
+            log(f"touch mapping: {line}")
+
     # ── entry points ─────────────────────────────────────────────────────────
 
     def run_once(self):
@@ -583,7 +611,9 @@ class Watcher:
     def run(self):
         log(f"started (poll {POLL_SECONDS} Hz + MonitorsChanged + resume; "
             f"debounce {DEBOUNCE_SAMPLES} samples; layout memory "
-            f"{'on' if remembering() else 'off'})")
+            f"{'on' if remembering() else 'off'}; touch mapping "
+            f"{'on' if touch_mapping_on() else 'off'})")
+        self._touch_pending = touch_mapping_on()
         # ZENDUO_MANAGED marks our own applies so displayctl does not mistake
         # them for a deliberate user choice and pause the policy on us.
         os.environ["ZENDUO_MANAGED"] = "1"

@@ -66,7 +66,8 @@ def quiet_model():
     m = stub_model()
     for name in ("enable", "disable", "restart", "start_stop", "config_set", "panels", "layout",
                  "apply_displays", "kb_backlight", "bat_limit", "speaker_dsp", "login_layout",
-                 "refresh_all", "refresh_slow", "refresh_fast", "refresh_kernel", "run_doctor_async"):
+                 "refresh_all", "refresh_slow", "refresh_fast", "refresh_kernel", "run_doctor_async",
+                 "audio", "touch_mapping"):
         setattr(m, name, lambda *a, _n=name, **kw: dm.Result(True, _n, "first line\nsecond line"))
     return m
 
@@ -341,6 +342,29 @@ class KeysTest(unittest.TestCase):
         app.handle_key(ord("l"))
         self.assertEqual(app.current, "Services")     # not a jump to an empty Logs
         self.assertIn("journalctl -u duo-cs35l41-check.service -b", app.render_text(100, 30))
+
+    def test_every_action_the_screen_can_run_is_stubbed_in_the_key_sweep(self):
+        # A new Model action missing from quiet_model() would run for real the
+        # first time the sweep presses its key.
+        import inspect
+        stubbed = quiet_model()
+        for name, fn in inspect.getmembers(dm.Model, inspect.isfunction):
+            src = inspect.getsource(fn)
+            if "cli(" in src or "user_systemctl(" in src:
+                self.assertIn(name, stubbed.__dict__, f"{name} runs a command and is not stubbed")
+
+    def test_the_touch_actions_go_through_duo_cli(self):
+        app = app_for(quiet_model())
+        calls = []
+        app.model.touch_mapping = lambda *flags: (calls.append(flags), dm.Result(True, "duo set-tablet-mapping", "ok"))[1]
+        app.switch("Displays")
+        view = app.views["Displays"]
+        names = [a[0] for a in view.ACTIONS]
+        for verb in ("touch", "touch --show"):
+            view.cur.i = names.index(verb)
+            app.handle_key(10)
+            app.close_modal()
+        self.assertEqual(calls, [(), ("--show",)])
 
     def test_leaving_displays_stops_the_mutter_poll(self):
         app = app_for()
