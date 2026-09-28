@@ -202,6 +202,27 @@ def native_dir():
     return os.path.join(config_home(), "easyeffects")
 
 
+def data_home():
+    return os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+
+
+def preset_paths(label, cfg_dir):
+    """Every place an EasyEffects looks for the preset, the one it reads first.
+
+    EasyEffects 8 reads presets from the data dir and moves anything it finds
+    in the old place there on start; 7 reads ~/.config/easyeffects/output
+    (read from EasyEffects 8.0.9's log, 2026-09-20). The Flatpak's version is
+    not known here, so it keeps the old place, which 8 migrates on its own.
+    """
+    old = os.path.join(cfg_dir, "output", f"{PRESET_NAME}.json")
+    if label != "native":
+        return [old]
+    new = os.path.join(data_home(), "easyeffects", "output", f"{PRESET_NAME}.json")
+    _exe, ver = native_binary()
+    major = ver.split(".")[0] if ver else ""
+    return [new, old] if major.isdigit() and int(major) >= 8 else [old, new]
+
+
 def flatpak_dir():
     return os.path.expanduser(f"~/.var/app/{FLATPAK_APP}/config/easyeffects")
 
@@ -269,9 +290,8 @@ def seed_dir(cfg_dir, dry_run=False):
     return changed
 
 
-def install_preset(cfg_dir, dry_run=False):
-    path = os.path.join(cfg_dir, "output", f"{PRESET_NAME}.json")
-    return write_if_changed(path, preset_json(), dry_run)
+def install_preset(cfg_dir, dry_run=False, label="flatpak"):
+    return write_if_changed(preset_paths(label, cfg_dir)[0], preset_json(), dry_run)
 
 
 def db_seeded(cfg_dir):
@@ -313,9 +333,9 @@ def cmd_status():
     else:
         log("no `easyeffects` on PATH (apt: easyeffects; flatpak: com.github.wwmm.easyeffects)")
     for label, d in installs():
-        preset = os.path.join(d, "output", f"{PRESET_NAME}.json")
+        found = [p for p in preset_paths(label, d) if os.path.exists(p)]
         log(f"{label}: {d}")
-        log(f"  preset {PRESET_NAME}: {'present' if os.path.exists(preset) else 'absent'}")
+        log(f"  preset {PRESET_NAME}: " + (f"present ({found[0]})" if found else "absent"))
         log(f"  db seeded (EasyEffects 8): {'yes' if db_seeded(d) else 'no'}")
     live = chain_live()
     if live is None:
@@ -329,7 +349,7 @@ def cmd_install(dry_run):
     changed = False
     for label, d in installs():
         log(f"{label}: {d}")
-        changed |= install_preset(d, dry_run)
+        changed |= install_preset(d, dry_run, label)
         changed |= seed_dir(d, dry_run)
     exe, ver = native_binary()
     if exe and ver.startswith("7"):
@@ -355,8 +375,9 @@ def cmd_seed(cfg_dir, dry_run):
 
 def cmd_uninstall(dry_run):
     for label, d in installs():
-        preset = os.path.join(d, "output", f"{PRESET_NAME}.json")
-        if os.path.exists(preset):
+        for preset in preset_paths(label, d):
+            if not os.path.lexists(preset):
+                continue
             if dry_run:
                 log(f"would remove {preset}")
             else:

@@ -155,6 +155,16 @@ let
   cfg = config.zenduo;
 
   presetName = "duo-speakers";
+  presetFile = ../presets/easyeffects/${presetName}.json;
+
+  # EasyEffects 8 reads presets from the data dir, 7 from ~/.config next to its
+  # db. Read from EasyEffects 8.0.9's own log, 2026-09-20: every start it found
+  # ~/.config/easyeffects/output, tried to move its files to
+  # ~/.local/share/easyeffects/output and gave up on this module's read-only
+  # file, so what it loaded was a copy left there on 2026-09-05. A change to
+  # the chain would never have reached the speakers. home-manager's own
+  # easyeffects module writes presets to xdg.dataFile for the same reason.
+  ee8 = lib.versionAtLeast (config.services.easyeffects.package.version or "0") "8";
 
   # EasyEffects 8 is a Qt application even in service mode: with no display it
   # cannot initialise a platform plugin and aborts (SIGABRT, "Could not load the
@@ -200,9 +210,17 @@ in
 
     # The preset file is shipped so the tuning is visible in the EasyEffects
     # GUI and can be re-selected there by hand. Generated from the same
-    # definition the db seed comes from (`make preset`).
-    xdg.configFile."easyeffects/output/${presetName}.json".source =
-      ../presets/easyeffects/${presetName}.json;
+    # definition the db seed comes from (`make preset`). mkIf per attribute,
+    # not an `if` around the set: the condition reads services.easyeffects,
+    # which this module also defines.
+    xdg.configFile."easyeffects/output/${presetName}.json" = lib.mkIf (!ee8) { source = presetFile; };
+    # force: the file EasyEffects' own migration left at this path is a plain
+    # copy of this preset, and without force the switch stops on it with
+    # "existing file is in the way".
+    xdg.dataFile."easyeffects/output/${presetName}.json" = lib.mkIf ee8 {
+      source = presetFile;
+      force = true;
+    };
 
     systemd.user.services.easyeffects.Service = {
       # Order matters only in that both must finish before EE reads its db.

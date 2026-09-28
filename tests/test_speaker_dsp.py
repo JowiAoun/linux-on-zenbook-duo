@@ -90,6 +90,26 @@ class Seeding(unittest.TestCase):
             self.assertTrue(sd.seed_dir(cfg))
             self.assertTrue(sd.db_seeded(cfg))
 
+    def test_easyeffects_8_gets_the_preset_where_it_reads_it(self):
+        # 8.0.9 read ~/.local/share/easyeffects/output and only migrated the
+        # old place on start (its own log, 2026-09-20).
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            cfg = os.path.join(d, "config", "easyeffects")
+            new = os.path.join(d, "data", "easyeffects", "output", "duo-speakers.json")
+            old = os.path.join(cfg, "output", "duo-speakers.json")
+            with mock.patch.dict(os.environ, {"XDG_DATA_HOME": os.path.join(d, "data")}):
+                with mock.patch.object(sd, "native_binary", return_value=("/x/easyeffects", "8.0.9")):
+                    self.assertEqual(sd.preset_paths("native", cfg), [new, old])
+                    self.assertTrue(sd.install_preset(cfg, label="native"))
+                    self.assertTrue(os.path.exists(new))
+                    self.assertFalse(os.path.exists(old))
+                with mock.patch.object(sd, "native_binary", return_value=("/x/easyeffects", "7.1.6")):
+                    self.assertEqual(sd.preset_paths("native", cfg), [old, new])
+                with mock.patch.object(sd, "native_binary", return_value=(None, None)):
+                    self.assertEqual(sd.preset_paths("native", cfg)[0], old)  # not installed yet
+                self.assertEqual(sd.preset_paths("flatpak", cfg), [old])
+
     def test_dry_run_writes_nothing(self):
         with tempfile.TemporaryDirectory() as d:
             cfg = os.path.join(d, "easyeffects")
