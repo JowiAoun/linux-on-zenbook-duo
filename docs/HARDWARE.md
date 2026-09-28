@@ -82,11 +82,25 @@ kept so code comments and the research stay cross-referenced.
   (all confirmed on this unit, July 2026). Seen in the journal 2026-09-05 and
   mapped by their mainline hid-asus meaning: `7c` mic mute, `7e` emoji picker
   (**VERIFY-ON-HW** which keycaps; the legend says Fn+F9 and Fn+F11). Seen and
-  unidentified: `3d`, `9c` — `duo fn-map` attributes them. Volume and mute
+  unidentified: `3d`, `9c` — `duo fn-map` attributes them. `3d` arrived 41
+  times on 2026-09-27, docked and over Bluetooth, often every 30 s or so and
+  right after the keyboard connected, which reads like a status report and
+  not a key; `watch-fn` logs an unknown code once per run. Volume and mute
   arrive as standard consumer-page usages and work natively.
 - **Keyboard backlight** is `{0x5a, 0xba, 0xc5, 0xc4, level}` padded to the
   interface's report length. Docking, undocking and resume blank it in
   hardware; the level is remembered under `~/.local/state/zenduo/`.
+- **Over Bluetooth a refused write looks like a good one.** A feature write
+  goes through bluetoothd, and the ioctl returns success even when the
+  keyboard refuses it. Measured 2026-09-27: on each of 15 reconnects
+  bluetoothd logged 4 to 6 `Error setting Report value` in the same second as
+  `kb_init`, whose ioctls had all returned success. After the confirmed
+  handshake `kb_init` sends report ids `0x5d` and `0x5e` and the four OOBE
+  reports, and the second OOBE report is the backlight command above, so
+  these are the likely ones. The handshake itself is read back, and the media
+  keys work over Bluetooth. Whether the backlight key works there is
+  **VERIFY-ON-HW**: until then both modules log a Bluetooth write as
+  "unconfirmed" and send the same bytes as before.
 - **Bluetooth pairing.** Detach, slide the switch on the left edge on, then
   hold F10 for 4–5 s until the LED flashes blue rapidly; the switch alone does
   not advertise. Remove a stale Windows pairing first.

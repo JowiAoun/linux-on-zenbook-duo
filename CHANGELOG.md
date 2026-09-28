@@ -36,6 +36,19 @@
 
 ### Fixes
 
+- The screen's Recent problems no longer fills up with `unmapped-0x3d`. A key
+  code with nothing bound to it is logged once per run of `watch-fn` (0x3d
+  arrived 41 times in one day, probably a status report from the keyboard),
+  and an unbound key no longer counts as a problem
+- Over Bluetooth, `kb_init` and `kb_backlight` say a write is unconfirmed
+  instead of "oobe-disable 4/4" and "sent": there the ioctl succeeds even when
+  the keyboard refuses the write, and bluetoothd logged 4 to 6 refusals on
+  every reconnect
+- With EasyEffects 8 the speaker preset goes where 8 reads it,
+  `~/.local/share/easyeffects/output`, both from the home-manager module and
+  from `duo speaker-dsp install`. The module put it in 7's place, 8 failed to
+  move the read-only file there on every start, and the speakers ran on a
+  copy from 2026-09-05 that no later change to the chain would have reached
 - Touching the bottom screen acts on the bottom screen. GNOME guessed the
   mapping and sent both panels' touch to the top one: the panels are the same
   size, and Mutter calls only one of them the laptop panel. `duo-watch-displays`
