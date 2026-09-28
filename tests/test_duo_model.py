@@ -126,6 +126,10 @@ class JournalTest(unittest.TestCase):
         self.assertEqual(level("ignoring unreadable fn-map.json"), "warn")
         self.assertEqual(level("no keyboard (undocked / BT off) — waiting"), "info")
         self.assertEqual(level("keyboard docked"), "info")
+        # a key with nothing bound to it is not a problem (2026-09-27: 0x3d
+        # filled Recent problems with nothing else)
+        self.assertEqual(level("watch-fn: key 5a 3d -> unmapped-0x3d"), "info")
+        self.assertEqual(level("watch-fn: no handler for 'unmapped-0x3d' yet"), "info")
         self.assertEqual(level("anything", pri=3), "err")
         self.assertEqual(level("anything", pri=4), "warn")
 

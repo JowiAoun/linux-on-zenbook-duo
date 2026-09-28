@@ -291,7 +291,7 @@ ERR_RE = re.compile(r"(?i)\b(fail(?:ed|ure|ing)?|error|traceback|refused|cannot|
                     r"|timed out|timeout|dead|not confirmed|not updated|standing down|no-go)\b"
                     r"|\brc=[1-9]\d*\b")
 WARN_RE = re.compile(r"(?i)\b(warn(?:ing)?|retry(?:ing)?|ignored|ignoring|unavailable|missing"
-                     r"|unknown|not installed|paused|falling back|fallback|storm|unmapped|suspicious)\b")
+                     r"|unknown|not installed|paused|falling back|fallback|storm|suspicious)\b")
 KERNEL_RE = re.compile(r"(?i)i915|asus|sof|cs35l41|xhci|hid|usb \d|0b05|snd_hda|ELAN")
 
 

@@ -62,6 +62,10 @@ DEFAULT_ACTIONS = {
 }
 
 # Actions from a fn-map.json we know how to perform (everything else logged).
+# The actions dispatch() acts on (fn-lock only on purpose: see the docstring).
+HANDLED = {"brightness-down", "brightness-up", "kbd-backlight", "second-screen",
+           "mic-mute", "emoji", "fn-lock"}
+
 KNOWN_ACTIONS = {"brightness-down", "brightness-up", "fn-lock", "second-screen",
                  "kbd-backlight", "mute", "volume-down", "volume-up",
                  "mic-mute", "display-switch", "split-screen", "camera-toggle",
@@ -96,9 +100,15 @@ def load_overrides():
     return table
 
 
+# Codes with no action here are logged once per run. 0x3d arrived 41 times
+# on 2026-09-27, docked and on Bluetooth, often every 30 s or so and right
+# after the keyboard connected: that reads like a status report from the
+# keyboard, not a key press. Two lines per arrival filled the screen's
+# "Recent problems" with nothing else.
 class Dispatcher:
     def __init__(self):
         self.children = []  # (Popen, argv), reaped by reap()
+        self.unhandled = {}  # action -> times seen this run
 
     def restore_backlight(self):
         """Put the keyboard backlight back to the remembered level.
@@ -162,6 +172,13 @@ class Dispatcher:
         self.spawn([DUO, "sync-backlight"])
 
     def dispatch(self, code, action):
+        if action not in HANDLED:
+            seen = self.unhandled.get(action, 0)
+            self.unhandled[action] = seen + 1
+            if not seen:
+                log(f"key 5a {code:02x} -> {action}: nothing is bound to it; "
+                    f"further ones are not logged until the daemon restarts")
+            return
         log(f"key 5a {code:02x} -> {action}")
         if action == "brightness-down":
             self.brightness("StepDown")
@@ -197,8 +214,6 @@ class Dispatcher:
             self.spawn(["ibus", "emoji"])
         elif action == "fn-lock":
             pass  # see the module docstring: the swap is not ours to perform yet
-        else:
-            log(f"no handler for '{action}' yet — captured for the future")
 
 
 def absent_reason():

@@ -45,6 +45,27 @@ class FnRow(unittest.TestCase):
         d.dispatch(0x3D, "unmapped-0x3d")
         self.assertEqual((d.spawned, d.ran), ([], []))
 
+    def test_an_unknown_code_is_logged_once_per_run(self):
+        # 0x3d arrived 41 times in a day (2026-09-27) and every arrival put two
+        # lines in the journal, which filled the screen's Recent problems.
+        from unittest import mock
+        lines = []
+        d = Recorder()
+        with mock.patch.object(watch_fn, "log", side_effect=lines.append):
+            for _ in range(5):
+                d.dispatch(0x3D, "unmapped-0x3d")
+            d.dispatch(0x9C, "unmapped-0x9c")
+            d.dispatch(0x10, "brightness-down")
+        self.assertEqual(len([ln for ln in lines if "0x3d" in ln]), 1)
+        self.assertEqual(len([ln for ln in lines if "0x9c" in ln]), 1)
+        self.assertIn("key 5a 10 -> brightness-down", lines)
+        self.assertEqual(d.unhandled, {"unmapped-0x3d": 5, "unmapped-0x9c": 1})
+
+    def test_every_default_action_is_handled_or_known_unbound(self):
+        for action in watch_fn.DEFAULT_ACTIONS.values():
+            self.assertIn(action, watch_fn.KNOWN_ACTIONS)
+        self.assertLessEqual(watch_fn.HANDLED, watch_fn.KNOWN_ACTIONS)
+
     def test_fn_map_override_wins_over_the_default(self):
         with __import__("tempfile").TemporaryDirectory() as tmp:
             os.makedirs(os.path.join(tmp, "zenduo"))
