@@ -121,7 +121,10 @@ def set_level(level):
                 except OSError:
                     continue
                 save_level(level)
-                print(f"kb_backlight: level {level} sent via {node} ({len(report)} bytes)")
+                # Over Bluetooth a refused write still returns success here
+                # (kb_init.over_bluetooth), so "sent" is all that is known.
+                how = ", unconfirmed over Bluetooth" if kb_init.over_bluetooth(node) else ""
+                print(f"kb_backlight: level {level} sent via {node} ({len(report)} bytes{how})")
                 return 0
         finally:
             os.close(fd)

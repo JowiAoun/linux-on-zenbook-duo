@@ -147,6 +147,26 @@ def hotkey_mode_confirmed(fd, size):
     return buf[0] == REPORT_IDS[0] and bytes(buf[1:len(HANDSHAKE_TAIL) + 1]) == bytes(HANDSHAKE_TAIL)
 
 
+def over_bluetooth(node, sysfs="/sys/class/hidraw"):
+    """True when this hidraw node is the keyboard on the Bluetooth bus (0005).
+
+    There a feature write that the keyboard refuses still returns success to
+    the ioctl; only bluetoothd hears the refusal. Measured 2026-09-27: on each
+    of 15 Bluetooth reconnects bluetoothd logged 4 to 6 "Error setting Report
+    value" in the same second as this module, while every ioctl here had
+    returned success and the log said "oobe-disable 4/4". The handshake is
+    still trustworthy because it is read back; nothing else is.
+    """
+    try:
+        with open(os.path.join(sysfs, os.path.basename(node), "device", "uevent")) as f:
+            for line in f:
+                if line.startswith("HID_ID="):
+                    return line.split("=", 1)[1].strip().startswith("0005:")
+    except OSError:
+        pass
+    return False
+
+
 def keyboard_hidraw_nodes():
     # USB enumerates as 0003:00000B05:00001B2C, but detached the same keyboard
     # re-enumerates on the Bluetooth bus (0005) with whatever ids/name BT
@@ -227,8 +247,11 @@ def send_handshake(hint=True, verbose=True):
                 except OSError:
                     pass
             confirmed.append(node)
-            print(f"kb_init: {node}: hotkey mode CONFIRMED (report 0x5a, {size} bytes); "
-                  f"oobe-disable {oobe_ok}/{len(OOBE_SEQUENCE)}")
+            if over_bluetooth(node):
+                oobe = f"oobe-disable {oobe_ok} sent, unconfirmed over Bluetooth"
+            else:
+                oobe = f"oobe-disable {oobe_ok}/{len(OOBE_SEQUENCE)}"
+            print(f"kb_init: {node}: hotkey mode CONFIRMED (report 0x5a, {size} bytes); {oobe}")
         finally:
             os.close(fd)
 

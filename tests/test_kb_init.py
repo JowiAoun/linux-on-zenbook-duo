@@ -36,6 +36,24 @@ class VanishingNodes(unittest.TestCase):
             self.assertIn("vanished", err.getvalue())
 
 
+class Transport(unittest.TestCase):
+    def fake_sysfs(self, root, name, hid_id):
+        d = os.path.join(root, name, "device")
+        os.makedirs(d)
+        with open(os.path.join(d, "uevent"), "w") as f:
+            f.write(f"DRIVER=hid-generic\nHID_ID={hid_id}\nHID_NAME=ASUS Zenbook Duo Keyboard\n")
+
+    def test_the_bus_decides(self):
+        # The same keyboard is 0003 on the pogo pins and 0005 detached.
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            self.fake_sysfs(root, "hidraw5", "0005:00000B05:00001B2D")
+            self.fake_sysfs(root, "hidraw8", "0003:00000B05:00001B2C")
+            self.assertTrue(kb_init.over_bluetooth("/dev/hidraw5", root))
+            self.assertFalse(kb_init.over_bluetooth("/dev/hidraw8", root))
+            self.assertFalse(kb_init.over_bluetooth("/dev/hidraw99", root))
+
+
 class Descriptor(unittest.TestCase):
     def test_declared_feature_size_walks_a_descriptor(self):
         # Vendor collection: usage page 0xff31, report id 0x5a, 8-bit x 16
