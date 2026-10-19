@@ -89,8 +89,8 @@ usage: duo-cli <command>        (duo <command> runs the same thing)
   watch-displays         daemon: bottom panel off while the keyboard is docked,
                          back on when it comes off. Nothing else is touched.
   apply-displays         enforce that policy once now (drops any manual override)
-  brightness up|down     step the top panel's backlight by 5% (what the
-                         brightness keys do; GNOME 49+ has no other way)
+  brightness up|down     step both panels' backlight like GNOME's slider (what
+                         the brightness keys do on GNOME 49+)
   sync-backlight [src [dst]]   copy panel backlight percentage src -> dst
   watch-backlight [src [dst]]  daemon: keep dst backlight synced to src
   kb-init                switch the keyboard into hotkey mode (enables Fn/media keys)

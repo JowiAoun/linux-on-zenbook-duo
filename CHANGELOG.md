@@ -8,10 +8,11 @@
   removed `org.gnome.SettingsDaemon.Power.Screen`. `watch-fn` still called it
   and threw the error away, so on Ubuntu 26.04 (GNOME 50) the keys were read
   and logged but the brightness never changed
-- when that call fails, the keys now step the top panel by 5% through Mutter's
-  `SetBacklight`, and the bottom panel follows as before. There is no
-  on-screen display on that path: GNOME Shell draws it only for keys it
-  handles itself
+- when that call fails, the keys now set both panels through Mutter's
+  `SetBacklight`, one step of GNOME's 20-step slider at a time. GNOME Shell
+  sees the change, so its slider follows and its brightness pop-up appears.
+  The bottom panel is not synced through sysfs on this path: Mutter does not
+  see those writes, and the slider then sticks at the bottom panel's old level
 - the same step is available as `duo brightness up|down`
 
 ### `duo` is a screen now; the command line is `duo-cli`

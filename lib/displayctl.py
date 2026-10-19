@@ -15,8 +15,8 @@ Commands:
     layout <verb>      the remembered per-monitor-set layout (Windows' Win+P):
                        show | laptop | external | extend | mirror | cycle |
                        remember | forget
-    brightness up|down step the top panel's backlight by 5% through Mutter
-                       (GNOME 49+, where gsd-power no longer does it)
+    brightness up|down step both panels' backlight one GNOME slider step
+                       through Mutter (GNOME 49+, where gsd-power no longer does it)
 
 Safety invariant (docs/DESIGN.md, R10): any configuration that would leave ZERO
 enabled panels is refused with exit code 2.
@@ -604,26 +604,45 @@ def cmd_layout(argv):
     return 0
 
 
-def brightness_target(light, up):
-    """The next backlight value for one entry of Mutter's Backlight property.
+# GNOME Shell's brightness slider has 20 steps (SCALE_VALUE_N_STEPS in
+# js/misc/brightnessManager.js, gnome-50 branch, read 2026-10-19).
+BRIGHTNESS_STEPS = 20
 
-    One step is 5% of the range, the step gsd-power used for the keys before
-    GNOME 49 moved backlight control into Mutter. Clamped to [min, max]
-    because SetBacklight rejects anything outside it.
+
+def brightness_targets(lights, up):
+    """The SetBacklight values for one brightness-key press: {connector: value}.
+
+    `lights` is Mutter's Backlight property. The top panel's level moves by
+    one of GNOME Shell's slider steps, and every other active internal panel
+    is set to the same fraction so both panels dim together. Both go through
+    Mutter rather than sysfs: Mutter only notices backlight changes made
+    through it or announced by udev, and GNOME Shell's slider follows the
+    brightest panel Mutter knows of, so a panel set behind its back pins the
+    slider at its old level.
     """
-    low, high, value = light["min"], light["max"], light["value"]
-    step = max(1, round((high - low) / 20))
-    target = value + step if up else value - step
-    return min(high, max(low, target))
+    def fraction(light):
+        return (light["value"] - light["min"]) / (light["max"] - light["min"])
+
+    usable = {light["connector"]: light for light in lights
+              if light.get("connector") in (TOP, BOTTOM) and "value" in light
+              and light.get("active", True) and light["max"] > light["min"]}
+    if TOP not in usable:
+        return {}
+    step = 1.0 / BRIGHTNESS_STEPS
+    target = fraction(usable[TOP]) + (step if up else -step)
+    target = min(1.0, max(0.0, target))
+    return {connector: round(light["min"] + target * (light["max"] - light["min"]))
+            for connector, light in usable.items()}
 
 
 def cmd_brightness(args):
-    """Step the top panel's backlight through Mutter's SetBacklight.
+    """Step both panels' backlight through Mutter's SetBacklight.
 
     GNOME 49 removed org.gnome.SettingsDaemon.Power.Screen (read from
-    gnome-shell's data/dbus-interfaces on the gnome-50 branch, 2026-10-19), so
-    the brightness keys have nothing else to call. No OSD: GNOME Shell draws
-    it only for key bindings it handles itself.
+    gnome-shell's data/dbus-interfaces on the gnome-50 branch, 2026-10-19) and
+    GNOME Shell offers no D-Bus method to step brightness, so the keys go to
+    Mutter directly. GNOME Shell sees the change, moves its slider and shows
+    its OSD (backlights-changed in js/misc/brightnessManager.js) -- VERIFY-ON-HW.
     """
     if args not in (["up"], ["down"]):
         print(__doc__, file=sys.stderr)
@@ -638,18 +657,16 @@ def cmd_brightness(args):
         serial, lights = reply.unpack()[0]
     except GLib.Error as e:
         raise DisplayCtlError(f"cannot read Mutter's Backlight property: {e.message}", 1)
-    # An entry carrying only a connector is a panel Mutter cannot control.
-    light = next((entry for entry in lights
-                  if entry.get("connector") == TOP and "value" in entry), None)
-    if light is None:
+    targets = brightness_targets(lights, up=args == ["up"])
+    if not targets:
         raise DisplayCtlError(f"Mutter has no controllable backlight on {TOP}", 1)
-    target = brightness_target(light, up=args == ["up"])
-    try:
-        bus.call_sync(BUS_NAME, OBJ_PATH, BUS_NAME, "SetBacklight",
-                      GLib.Variant("(usi)", (serial, TOP, target)), None,
-                      Gio.DBusCallFlags.NONE, -1, None)
-    except GLib.Error as e:
-        raise DisplayCtlError(f"SetBacklight failed: {e.message}", 1)
+    for connector, value in targets.items():
+        try:
+            bus.call_sync(BUS_NAME, OBJ_PATH, BUS_NAME, "SetBacklight",
+                          GLib.Variant("(usi)", (serial, connector, value)), None,
+                          Gio.DBusCallFlags.NONE, -1, None)
+        except GLib.Error as e:
+            raise DisplayCtlError(f"SetBacklight {connector} failed: {e.message}", 1)
     return 0
 
 

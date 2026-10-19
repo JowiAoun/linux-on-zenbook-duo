@@ -171,14 +171,18 @@ class Dispatcher:
                          "--method", f"org.gnome.SettingsDaemon.Power.Screen.{method}"])
 
     def brightness(self, method):
-        if not self.gsd_screen(method):
-            direction = "up" if method == "StepUp" else "down"
-            if not self.run([DUO, "brightness", direction]):
-                log(f"brightness {direction} failed: run `duo brightness {direction}` "
-                    f"to see why")
-        # GNOME drives only the primary panel; mirror the new level onto the
-        # bottom panel so both screens dim together when the keyboard is undocked.
-        self.spawn([DUO, "sync-backlight"])
+        if self.gsd_screen(method):
+            # GNOME drives only the primary panel; mirror the new level onto the
+            # bottom panel so both screens dim together when the keyboard is undocked.
+            self.spawn([DUO, "sync-backlight"])
+            return
+        # GNOME 49+: `duo brightness` sets both panels through Mutter itself.
+        # No sync-backlight after it: that writes sysfs behind Mutter's back,
+        # and GNOME's slider then sticks at the bottom panel's stale level.
+        direction = "up" if method == "StepUp" else "down"
+        if not self.run([DUO, "brightness", direction]):
+            log(f"brightness {direction} failed: run `duo brightness {direction}` "
+                f"to see why")
 
     def dispatch(self, code, action):
         if action not in HANDLED:

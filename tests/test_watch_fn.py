@@ -104,7 +104,8 @@ class Brightness(unittest.TestCase):
         d = self.recorder(failing=("gdbus",))
         d.dispatch(0x10, "brightness-down")
         self.assertEqual(d.ran[1], [watch_fn.DUO, "brightness", "down"])
-        self.assertEqual(d.spawned, [[watch_fn.DUO, "sync-backlight"]])
+        # Mutter already set both panels; a sysfs sync would hide it from GNOME.
+        self.assertEqual(d.spawned, [])
 
     def test_a_failed_fallback_is_logged(self):
         from unittest import mock
