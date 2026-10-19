@@ -3,6 +3,9 @@
 #   - hidraw access (uaccess ACL for the logged-in user) to the detachable
 #     keyboard's vendor interface over USB (0b05:1b2c), and with --bluetooth-fn
 #     to its Bluetooth node (0b05:1b2d) — used by kb-backlight/kb-init/fn-*
+#   - uaccess on /dev/uinput, so watch-fn can press the brightness keys GNOME
+#     49+ only handles as real key events (lib/uinput_keys.py). Same reach as
+#     the hidraw grant: the user at the seat, while they are at it
 #   - a world-writable native kbd-backlight LED node (any local account can
 #     set the level), if/when the kernel grows one (see docs/HARDWARE.md, V8)
 #
@@ -25,6 +28,9 @@ read -r -d '' RULES <<'EOF_RULES' || true
 # carries every key typed, so it stays root's (measured 2026-10-31: of the six
 # interfaces only :1.4 declares report 0x5a, and :1.0 is the boot keyboard).
 SUBSYSTEM=="hidraw", DEVPATH=="*:1.4/0003:0B05:1B2C.*", TAG+="uaccess"
+# uinput: watch-fn presses KEY_BRIGHTNESSUP/DOWN on a virtual keyboard so GNOME
+# 49+ handles the brightness keys itself (slider + OSD; see lib/uinput_keys.py).
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
 # Native keyboard-backlight LED (absent on current kernels; harmless if unmatched).
 ACTION=="add", SUBSYSTEM=="leds", KERNEL=="asus::kbd_backlight", RUN+="/bin/chmod 0666 /sys%p/brightness"
 EOF_RULES
@@ -44,6 +50,7 @@ if install_conf "$RULES_DST" "$RULES"; then
   if [ "$DRY_RUN" != 1 ]; then
     udevadm control --reload
     udevadm trigger --subsystem-match=hidraw || true
+    udevadm trigger --subsystem-match=misc --sysname-match=uinput || true
     # An older rule tagged every node of the keyboard, and an ACL that is
     # already set stays until the node goes away. Clear it on every node the
     # rule no longer covers.

@@ -8,11 +8,14 @@
   removed `org.gnome.SettingsDaemon.Power.Screen`. `watch-fn` still called it
   and threw the error away, so on Ubuntu 26.04 (GNOME 50) the keys were read
   and logged but the brightness never changed
-- when that call fails, the keys now set both panels through Mutter's
-  `SetBacklight`, one step of GNOME's 20-step slider at a time. GNOME Shell
-  sees the change, so its slider follows and its brightness pop-up appears.
-  The bottom panel is not synced through sysfs on this path: Mutter does not
-  see those writes, and the slider then sticks at the bottom panel's old level
+- when that call fails, `watch-fn` presses a real brightness key on a
+  virtual keyboard (`/dev/uinput`), so GNOME Shell handles it exactly like a
+  built-in key: its slider moves, both panels follow and the brightness
+  pop-up appears. Nothing on D-Bus does that: GNOME Shell shows neither the
+  pop-up nor the slider change for a backlight set through Mutter
+- the udev rules now give the user at the seat write access to `/dev/uinput`
+  (`sudo ./install.sh --system`). Without it the keys fall back to setting
+  both panels through Mutter's `SetBacklight`, with no pop-up
 - the same step is available as `duo brightness up|down`
 
 ### `duo` is a screen now; the command line is `duo-cli`
