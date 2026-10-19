@@ -85,6 +85,36 @@ class FnRow(unittest.TestCase):
         self.assertEqual(table[0x10], "brightness-down", "defaults survive an override file")
 
 
+class Brightness(unittest.TestCase):
+    """GNOME 49 dropped gsd-power's Screen interface; the keys must still work."""
+
+    def recorder(self, failing):
+        d = Recorder()
+        d.run = lambda argv: (d.ran.append(argv), argv[0] not in failing)[1]
+        return d
+
+    def test_gsd_power_handles_it_when_present(self):
+        d = self.recorder(failing=())
+        d.dispatch(0x20, "brightness-up")
+        self.assertEqual(len(d.ran), 1)
+        self.assertIn("org.gnome.SettingsDaemon.Power.Screen.StepUp", d.ran[0])
+        self.assertEqual(d.spawned, [[watch_fn.DUO, "sync-backlight"]])
+
+    def test_falls_back_to_mutter_without_gsd_power(self):
+        d = self.recorder(failing=("gdbus",))
+        d.dispatch(0x10, "brightness-down")
+        self.assertEqual(d.ran[1], [watch_fn.DUO, "brightness", "down"])
+        self.assertEqual(d.spawned, [[watch_fn.DUO, "sync-backlight"]])
+
+    def test_a_failed_fallback_is_logged(self):
+        from unittest import mock
+        d = self.recorder(failing=("gdbus", watch_fn.DUO))
+        with mock.patch.object(watch_fn, "log") as log:
+            d.dispatch(0x20, "brightness-up")
+        self.assertTrue(any("duo brightness up" in call.args[0]
+                            for call in log.call_args_list))
+
+
 class ReEnumeration(unittest.TestCase):
     """2026-09-16: five times in an evening the keyboard's nodes vanished and
     came back within 2 s; each time the daemon rescanned mid-teardown, sent

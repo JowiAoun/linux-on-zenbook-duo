@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Brightness keys work on GNOME 49 and later
+
+- GNOME 49 moved backlight control from gnome-settings-daemon into Mutter and
+  removed `org.gnome.SettingsDaemon.Power.Screen`. `watch-fn` still called it
+  and threw the error away, so on Ubuntu 26.04 (GNOME 50) the keys were read
+  and logged but the brightness never changed
+- when that call fails, the keys now step the top panel by 5% through Mutter's
+  `SetBacklight`, and the bottom panel follows as before. There is no
+  on-screen display on that path: GNOME Shell draws it only for keys it
+  handles itself
+- the same step is available as `duo brightness up|down`
+
 ### `duo` is a screen now; the command line is `duo-cli`
 
 - `duo` opens a curses screen (python3 as Ubuntu ships it, nothing else) with

@@ -375,5 +375,28 @@ class FromStored(unittest.TestCase):
         self.assertNotEqual(self.stored(moved).shape(), stored.shape())
 
 
+class BrightnessStep(unittest.TestCase):
+    """What the brightness keys ask Mutter for (GNOME 49+)."""
+
+    def test_steps_five_percent_of_the_range(self):
+        # intel_backlight on this machine: max_brightness 400 (measured 2026-10-19).
+        light = {"connector": TOP, "min": 0, "max": 400, "value": 116}
+        self.assertEqual(displayctl.brightness_target(light, up=True), 136)
+        self.assertEqual(displayctl.brightness_target(light, up=False), 96)
+
+    def test_clamps_to_the_range(self):
+        light = {"connector": TOP, "min": 1, "max": 400, "value": 395}
+        self.assertEqual(displayctl.brightness_target(light, up=True), 400)
+        light["value"] = 10
+        self.assertEqual(displayctl.brightness_target(light, up=False), 1)
+
+    def test_a_tiny_range_still_moves(self):
+        light = {"connector": TOP, "min": 0, "max": 10, "value": 5}
+        self.assertEqual(displayctl.brightness_target(light, up=True), 6)
+
+    def test_rejects_anything_but_up_or_down(self):
+        self.assertEqual(displayctl.run(["brightness", "sideways"]), 64)
+
+
 if __name__ == "__main__":
     unittest.main()

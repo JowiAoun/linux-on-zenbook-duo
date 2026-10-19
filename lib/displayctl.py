@@ -15,6 +15,8 @@ Commands:
     layout <verb>      the remembered per-monitor-set layout (Windows' Win+P):
                        show | laptop | external | extend | mirror | cycle |
                        remember | forget
+    brightness up|down step the top panel's backlight by 5% through Mutter
+                       (GNOME 49+, where gsd-power no longer does it)
 
 Safety invariant (docs/DESIGN.md, R10): any configuration that would leave ZERO
 enabled panels is refused with exit code 2.
@@ -602,6 +604,55 @@ def cmd_layout(argv):
     return 0
 
 
+def brightness_target(light, up):
+    """The next backlight value for one entry of Mutter's Backlight property.
+
+    One step is 5% of the range, the step gsd-power used for the keys before
+    GNOME 49 moved backlight control into Mutter. Clamped to [min, max]
+    because SetBacklight rejects anything outside it.
+    """
+    low, high, value = light["min"], light["max"], light["value"]
+    step = max(1, round((high - low) / 20))
+    target = value + step if up else value - step
+    return min(high, max(low, target))
+
+
+def cmd_brightness(args):
+    """Step the top panel's backlight through Mutter's SetBacklight.
+
+    GNOME 49 removed org.gnome.SettingsDaemon.Power.Screen (read from
+    gnome-shell's data/dbus-interfaces on the gnome-50 branch, 2026-10-19), so
+    the brightness keys have nothing else to call. No OSD: GNOME Shell draws
+    it only for key bindings it handles itself.
+    """
+    if args not in (["up"], ["down"]):
+        print(__doc__, file=sys.stderr)
+        return 64
+    _require_gi()
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        reply = bus.call_sync(
+            BUS_NAME, OBJ_PATH, "org.freedesktop.DBus.Properties", "Get",
+            GLib.Variant("(ss)", (BUS_NAME, "Backlight")), GLib.VariantType("(v)"),
+            Gio.DBusCallFlags.NONE, -1, None)
+        serial, lights = reply.unpack()[0]
+    except GLib.Error as e:
+        raise DisplayCtlError(f"cannot read Mutter's Backlight property: {e.message}", 1)
+    # An entry carrying only a connector is a panel Mutter cannot control.
+    light = next((entry for entry in lights
+                  if entry.get("connector") == TOP and "value" in entry), None)
+    if light is None:
+        raise DisplayCtlError(f"Mutter has no controllable backlight on {TOP}", 1)
+    target = brightness_target(light, up=args == ["up"])
+    try:
+        bus.call_sync(BUS_NAME, OBJ_PATH, BUS_NAME, "SetBacklight",
+                      GLib.Variant("(usi)", (serial, TOP, target)), None,
+                      Gio.DBusCallFlags.NONE, -1, None)
+    except GLib.Error as e:
+        raise DisplayCtlError(f"SetBacklight failed: {e.message}", 1)
+    return 0
+
+
 def cmd_state(as_json):
     p = proxy()
     serial, monitors_raw, logical_raw, properties = get_state(p)
@@ -634,6 +685,8 @@ def run(argv):
     # the layout for real (2026-09-12) — the one bug a dry run must never have.
     if cmd == "layout":
         return cmd_layout(args)
+    if cmd == "brightness":
+        return cmd_brightness(args)
 
     dry_run = "--dry-run" in args
     args = [a for a in args if a != "--dry-run"]

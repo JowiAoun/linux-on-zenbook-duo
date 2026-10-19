@@ -151,22 +151,31 @@ class Dispatcher:
         self.children = still_running
 
     def run(self, argv):
+        """Run argv to completion; True when it exited 0."""
         try:
-            subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            return subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=5).returncode == 0
         except (OSError, subprocess.TimeoutExpired) as e:
             log(f"failed to run {argv[0]}: {e}")
+            return False
 
     def gsd_screen(self, method):
         # GNOME settings-daemon's own brightness path: applies the change AND
         # shows the on-screen display, exactly like a natively-handled key.
         # Blocking, so the follow-up second-panel sync reads the updated level.
-        self.run(["gdbus", "call", "--session",
-                  "--dest", "org.gnome.SettingsDaemon.Power",
-                  "--object-path", "/org/gnome/SettingsDaemon/Power",
-                  "--method", f"org.gnome.SettingsDaemon.Power.Screen.{method}"])
+        # GNOME 49 dropped this interface (backlight moved into Mutter), so
+        # False here is expected there and brightness() falls back.
+        return self.run(["gdbus", "call", "--session",
+                         "--dest", "org.gnome.SettingsDaemon.Power",
+                         "--object-path", "/org/gnome/SettingsDaemon/Power",
+                         "--method", f"org.gnome.SettingsDaemon.Power.Screen.{method}"])
 
     def brightness(self, method):
-        self.gsd_screen(method)
+        if not self.gsd_screen(method):
+            direction = "up" if method == "StepUp" else "down"
+            if not self.run([DUO, "brightness", direction]):
+                log(f"brightness {direction} failed: run `duo brightness {direction}` "
+                    f"to see why")
         # GNOME drives only the primary panel; mirror the new level onto the
         # bottom panel so both screens dim together when the keyboard is undocked.
         self.spawn([DUO, "sync-backlight"])

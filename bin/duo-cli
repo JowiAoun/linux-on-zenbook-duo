@@ -89,6 +89,8 @@ usage: duo-cli <command>        (duo <command> runs the same thing)
   watch-displays         daemon: bottom panel off while the keyboard is docked,
                          back on when it comes off. Nothing else is touched.
   apply-displays         enforce that policy once now (drops any manual override)
+  brightness up|down     step the top panel's backlight by 5% (what the
+                         brightness keys do; GNOME 49+ has no other way)
   sync-backlight [src [dst]]   copy panel backlight percentage src -> dst
   watch-backlight [src [dst]]  daemon: keep dst backlight synced to src
   kb-init                switch the keyboard into hotkey mode (enables Fn/media keys)
@@ -1026,7 +1028,7 @@ case "$cmd" in
   enable)             cmd_enable "$@" ;;
   disable)            cmd_disable "$@" ;;
   config)             cmd_config "$@" ;;
-  top|bottom|both|toggle) "$PYGI" "$LIB/displayctl.py" "$cmd" "$@" ;;
+  top|bottom|both|toggle|brightness) "$PYGI" "$LIB/displayctl.py" "$cmd" "$@" ;;
   layout)             cmd_layout "$@" ;;
   watch-displays)     exec "$PYGI" "$LIB/watch_displays.py" "$@" ;;
   apply-displays)     exec "$PYGI" "$LIB/watch_displays.py" --once "$@" ;;
