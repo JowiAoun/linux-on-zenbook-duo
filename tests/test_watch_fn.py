@@ -6,6 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 import dock  # noqa: E402
+import uinput_keys  # noqa: E402
 import watch_fn  # noqa: E402
 
 
@@ -21,6 +22,9 @@ class Recorder(watch_fn.Dispatcher):
 
     def run(self, argv):
         self.ran.append(argv)
+
+    def virtual_keys(self):
+        return None  # never create a real /dev/uinput device from a test
 
 
 class FnRow(unittest.TestCase):
@@ -83,6 +87,79 @@ class FnRow(unittest.TestCase):
         self.assertEqual(table[0x3D], "camera-toggle")
         self.assertEqual(table[0x7E], "emoji")
         self.assertEqual(table[0x10], "brightness-down", "defaults survive an override file")
+
+
+class FakeKeys:
+    def __init__(self, fail=False):
+        self.tapped, self.fail = [], fail
+
+    def tap(self, key):
+        if self.fail:
+            raise OSError(5, "Input/output error")
+        self.tapped.append(key)
+
+
+class Brightness(unittest.TestCase):
+    """GNOME 49 dropped gsd-power's Screen interface; the keys must still work."""
+
+    def recorder(self, failing, keys=None):
+        d = Recorder()
+        d.run = lambda argv: (d.ran.append(argv), argv[0] not in failing)[1]
+        d.virtual_keys = lambda: keys
+        return d
+
+    def test_gnome_49_gets_a_real_key_press(self):
+        keys = FakeKeys()
+        d = self.recorder(failing=("gdbus",), keys=keys)
+        d.dispatch(0x20, "brightness-up")
+        d.dispatch(0x10, "brightness-down")
+        self.assertEqual(keys.tapped, [uinput_keys.KEY_BRIGHTNESSUP,
+                                       uinput_keys.KEY_BRIGHTNESSDOWN])
+        # GNOME Shell sets both panels itself; no Mutter call, no sysfs sync.
+        self.assertEqual(len(d.ran), 2)
+        self.assertEqual(d.spawned, [])
+
+    def test_a_failed_key_press_falls_back_to_mutter(self):
+        from unittest import mock
+        d = self.recorder(failing=("gdbus",), keys=FakeKeys(fail=True))
+        with mock.patch.object(watch_fn, "log"):
+            d.dispatch(0x20, "brightness-up")
+        self.assertEqual(d.ran[1], [watch_fn.DUO, "brightness", "up"])
+
+    def test_without_uinput_the_daemon_says_why_once(self):
+        from unittest import mock
+        d = Recorder()
+        d.virtual_keys = watch_fn.Dispatcher.virtual_keys.__get__(d)
+        lines = []
+        with mock.patch.object(uinput_keys, "VirtualKeys",
+                               side_effect=PermissionError(13, "Permission denied")), \
+                mock.patch.object(watch_fn, "log", side_effect=lines.append):
+            self.assertIsNone(d.virtual_keys())
+            self.assertIsNone(d.virtual_keys())
+        self.assertEqual(len(lines), 1)
+        self.assertIn("Permission denied", lines[0])
+
+    def test_gsd_power_handles_it_when_present(self):
+        d = self.recorder(failing=())
+        d.dispatch(0x20, "brightness-up")
+        self.assertEqual(len(d.ran), 1)
+        self.assertIn("org.gnome.SettingsDaemon.Power.Screen.StepUp", d.ran[0])
+        self.assertEqual(d.spawned, [[watch_fn.DUO, "sync-backlight"]])
+
+    def test_falls_back_to_mutter_without_gsd_power(self):
+        d = self.recorder(failing=("gdbus",))
+        d.dispatch(0x10, "brightness-down")
+        self.assertEqual(d.ran[1], [watch_fn.DUO, "brightness", "down"])
+        # Mutter already set both panels; a sysfs sync would hide it from GNOME.
+        self.assertEqual(d.spawned, [])
+
+    def test_a_failed_fallback_is_logged(self):
+        from unittest import mock
+        d = self.recorder(failing=("gdbus", watch_fn.DUO))
+        with mock.patch.object(watch_fn, "log") as log:
+            d.dispatch(0x20, "brightness-up")
+        self.assertTrue(any("duo brightness up" in call.args[0]
+                            for call in log.call_args_list))
 
 
 class ReEnumeration(unittest.TestCase):

@@ -375,5 +375,44 @@ class FromStored(unittest.TestCase):
         self.assertNotEqual(self.stored(moved).shape(), stored.shape())
 
 
+class BrightnessStep(unittest.TestCase):
+    """What the brightness keys ask Mutter for (GNOME 49+)."""
+
+    @staticmethod
+    def light(connector, value, low=0, high=400, active=True):
+        return {"connector": connector, "active": active,
+                "min": low, "max": high, "value": value}
+
+    def test_one_slider_step_on_the_top_panel(self):
+        targets = displayctl.brightness_targets([self.light(TOP, 120)], up=True)
+        self.assertEqual(targets, {TOP: 140})
+        targets = displayctl.brightness_targets([self.light(TOP, 120)], up=False)
+        self.assertEqual(targets, {TOP: 100})
+
+    def test_the_bottom_panel_follows_at_the_same_fraction(self):
+        # card1-eDP-2-backlight has max 255 next to intel_backlight's 400
+        # (measured 2026-10-19), so equal fractions are different raw values.
+        lights = [self.light(TOP, 120), self.light(BOTTOM, 30, high=255)]
+        self.assertEqual(displayctl.brightness_targets(lights, up=True),
+                         {TOP: 140, BOTTOM: 89})
+
+    def test_a_panel_that_is_off_is_left_alone(self):
+        lights = [self.light(TOP, 120), self.light(BOTTOM, 30, active=False)]
+        self.assertEqual(displayctl.brightness_targets(lights, up=True), {TOP: 140})
+
+    def test_clamps_to_the_range(self):
+        self.assertEqual(displayctl.brightness_targets([self.light(TOP, 395)], up=True),
+                         {TOP: 400})
+        self.assertEqual(displayctl.brightness_targets([self.light(TOP, 5)], up=False),
+                         {TOP: 0})
+
+    def test_uncontrollable_or_external_entries_are_skipped(self):
+        lights = [{"connector": TOP}, self.light("HDMI-1", 50)]
+        self.assertEqual(displayctl.brightness_targets(lights, up=True), {})
+
+    def test_rejects_anything_but_up_or_down(self):
+        self.assertEqual(displayctl.run(["brightness", "sideways"]), 64)
+
+
 if __name__ == "__main__":
     unittest.main()

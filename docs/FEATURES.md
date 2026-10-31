@@ -14,7 +14,7 @@ What the machine does under Windows, whether it does it here, and how.
 | The lock screen appears on the monitor you were using | Same memory: Mutter restores the layout before the shield is drawn | 🧪 2026-09-12 |
 | The sign-in screen appears there too | `duo layout login` (automatic after a change) installs the same layouts for GDM, via the root helper | 🧪 2026-09-12 |
 | Second-screen key toggles the bottom panel | `5a 6a` → `duo toggle`; ignored while docked (the panel is under the keyboard) | ✅ |
-| Brightness keys drive both panels | GNOME's own StepUp/StepDown (with OSD) then the bottom panel is synced | ✅ |
+| Brightness keys drive both panels | GNOME's own StepUp/StepDown (with OSD) then the bottom panel is synced. GNOME 49+ has no StepUp/StepDown, so watch-fn presses a virtual brightness key and GNOME handles it natively (slider and OSD); `duo brightness` through Mutter is the fallback without /dev/uinput | ✅ |
 | Auto-rotate: tent, book, portrait | `duo watch-rotation` logs orientation | 🧪 → phase O |
 | Touch and pen land on the right panel | `watch-displays` pins each digitizer at start; `duo set-tablet-mapping` by hand (4-value GNOME setting, connector included) | 🧪 written 2026-09-27, not yet applied → phase P |
 | No OLED flicker | `i915.enable_psr=0` | ✅ |

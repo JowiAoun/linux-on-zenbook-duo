@@ -37,6 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import kb_init  # noqa: E402  (same directory; shares node discovery + handshake)
 import kb_backlight  # noqa: E402  (same directory; owns the remembered level)
 import dock  # noqa: E402  (same directory; keyboard dock state)
+import uinput_keys  # noqa: E402  (same directory; virtual brightness keys)
 
 DUO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                     "..", "bin", "duo-cli"))
@@ -109,6 +110,21 @@ class Dispatcher:
     def __init__(self):
         self.children = []  # (Popen, argv), reaped by reap()
         self.unhandled = {}  # action -> times seen this run
+        self.keys = None  # uinput_keys.VirtualKeys, made on first use
+        self.keys_failed = False
+
+    def virtual_keys(self):
+        """The virtual brightness keys, or None when /dev/uinput is closed to us."""
+        if self.keys is None and not self.keys_failed:
+            try:
+                self.keys = uinput_keys.VirtualKeys()
+            except OSError as e:
+                self.keys_failed = True
+                log(f"no virtual brightness keys ({uinput_keys.UINPUT_PATH}: "
+                    f"{e.strerror}); stepping through Mutter instead, without "
+                    f"GNOME's OSD. `sudo ./install.sh --system` installs the "
+                    f"udev rule that opens it")
+        return self.keys
 
     def restore_backlight(self):
         """Put the keyboard backlight back to the remembered level.
@@ -151,25 +167,48 @@ class Dispatcher:
         self.children = still_running
 
     def run(self, argv):
+        """Run argv to completion; True when it exited 0."""
         try:
-            subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            return subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=5).returncode == 0
         except (OSError, subprocess.TimeoutExpired) as e:
             log(f"failed to run {argv[0]}: {e}")
+            return False
 
     def gsd_screen(self, method):
         # GNOME settings-daemon's own brightness path: applies the change AND
         # shows the on-screen display, exactly like a natively-handled key.
         # Blocking, so the follow-up second-panel sync reads the updated level.
-        self.run(["gdbus", "call", "--session",
-                  "--dest", "org.gnome.SettingsDaemon.Power",
-                  "--object-path", "/org/gnome/SettingsDaemon/Power",
-                  "--method", f"org.gnome.SettingsDaemon.Power.Screen.{method}"])
+        # GNOME 49 dropped this interface (backlight moved into Mutter), so
+        # False here is expected there and brightness() falls back.
+        return self.run(["gdbus", "call", "--session",
+                         "--dest", "org.gnome.SettingsDaemon.Power",
+                         "--object-path", "/org/gnome/SettingsDaemon/Power",
+                         "--method", f"org.gnome.SettingsDaemon.Power.Screen.{method}"])
 
     def brightness(self, method):
-        self.gsd_screen(method)
-        # GNOME drives only the primary panel; mirror the new level onto the
-        # bottom panel so both screens dim together when the keyboard is undocked.
-        self.spawn([DUO, "sync-backlight"])
+        if self.gsd_screen(method):
+            # GNOME drives only the primary panel; mirror the new level onto the
+            # bottom panel so both screens dim together when the keyboard is undocked.
+            self.spawn([DUO, "sync-backlight"])
+            return
+        # GNOME 49+: press a real brightness key and let GNOME Shell step its
+        # slider, set both panels and show its OSD (see uinput_keys).
+        keys = self.virtual_keys()
+        if keys is not None:
+            try:
+                keys.tap(uinput_keys.KEY_BRIGHTNESSUP if method == "StepUp"
+                         else uinput_keys.KEY_BRIGHTNESSDOWN)
+                return
+            except OSError as e:
+                log(f"virtual brightness key failed: {e.strerror}")
+        # Last resort: `duo brightness` sets both panels through Mutter. No
+        # sync-backlight after it: that writes sysfs behind Mutter's back, and
+        # GNOME's slider then sticks at the bottom panel's stale level.
+        direction = "up" if method == "StepUp" else "down"
+        if not self.run([DUO, "brightness", direction]):
+            log(f"brightness {direction} failed: run `duo brightness {direction}` "
+                f"to see why")
 
     def dispatch(self, code, action):
         if action not in HANDLED:

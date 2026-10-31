@@ -15,6 +15,8 @@ Commands:
     layout <verb>      the remembered per-monitor-set layout (Windows' Win+P):
                        show | laptop | external | extend | mirror | cycle |
                        remember | forget
+    brightness up|down step both panels' backlight one GNOME slider step
+                       through Mutter (GNOME 49+, where gsd-power no longer does it)
 
 Safety invariant (docs/DESIGN.md, R10): any configuration that would leave ZERO
 enabled panels is refused with exit code 2.
@@ -602,6 +604,72 @@ def cmd_layout(argv):
     return 0
 
 
+# GNOME Shell's brightness slider has 20 steps (SCALE_VALUE_N_STEPS in
+# js/misc/brightnessManager.js, gnome-50 branch, read 2026-10-19).
+BRIGHTNESS_STEPS = 20
+
+
+def brightness_targets(lights, up):
+    """The SetBacklight values for one brightness-key press: {connector: value}.
+
+    `lights` is Mutter's Backlight property. The top panel's level moves by
+    one of GNOME Shell's slider steps, and every other active internal panel
+    is set to the same fraction so both panels dim together. Both go through
+    Mutter rather than sysfs: Mutter only notices backlight changes made
+    through it or announced by udev, and GNOME Shell's slider follows the
+    brightest panel Mutter knows of, so a panel set behind its back pins the
+    slider at its old level.
+    """
+    def fraction(light):
+        return (light["value"] - light["min"]) / (light["max"] - light["min"])
+
+    usable = {light["connector"]: light for light in lights
+              if light.get("connector") in (TOP, BOTTOM) and "value" in light
+              and light.get("active", True) and light["max"] > light["min"]}
+    if TOP not in usable:
+        return {}
+    step = 1.0 / BRIGHTNESS_STEPS
+    target = fraction(usable[TOP]) + (step if up else -step)
+    target = min(1.0, max(0.0, target))
+    return {connector: round(light["min"] + target * (light["max"] - light["min"]))
+            for connector, light in usable.items()}
+
+
+def cmd_brightness(args):
+    """Step both panels' backlight through Mutter's SetBacklight.
+
+    GNOME 49 removed org.gnome.SettingsDaemon.Power.Screen (read from
+    gnome-shell's data/dbus-interfaces on the gnome-50 branch, 2026-10-19) and
+    GNOME Shell offers no D-Bus method to step brightness, so the keys go to
+    Mutter directly. GNOME Shell sees the change, moves its slider and shows
+    its OSD (backlights-changed in js/misc/brightnessManager.js) -- VERIFY-ON-HW.
+    """
+    if args not in (["up"], ["down"]):
+        print(__doc__, file=sys.stderr)
+        return 64
+    _require_gi()
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        reply = bus.call_sync(
+            BUS_NAME, OBJ_PATH, "org.freedesktop.DBus.Properties", "Get",
+            GLib.Variant("(ss)", (BUS_NAME, "Backlight")), GLib.VariantType("(v)"),
+            Gio.DBusCallFlags.NONE, -1, None)
+        serial, lights = reply.unpack()[0]
+    except GLib.Error as e:
+        raise DisplayCtlError(f"cannot read Mutter's Backlight property: {e.message}", 1)
+    targets = brightness_targets(lights, up=args == ["up"])
+    if not targets:
+        raise DisplayCtlError(f"Mutter has no controllable backlight on {TOP}", 1)
+    for connector, value in targets.items():
+        try:
+            bus.call_sync(BUS_NAME, OBJ_PATH, BUS_NAME, "SetBacklight",
+                          GLib.Variant("(usi)", (serial, connector, value)), None,
+                          Gio.DBusCallFlags.NONE, -1, None)
+        except GLib.Error as e:
+            raise DisplayCtlError(f"SetBacklight {connector} failed: {e.message}", 1)
+    return 0
+
+
 def cmd_state(as_json):
     p = proxy()
     serial, monitors_raw, logical_raw, properties = get_state(p)
@@ -634,6 +702,8 @@ def run(argv):
     # the layout for real (2026-09-12) — the one bug a dry run must never have.
     if cmd == "layout":
         return cmd_layout(args)
+    if cmd == "brightness":
+        return cmd_brightness(args)
 
     dry_run = "--dry-run" in args
     args = [a for a in args if a != "--dry-run"]
