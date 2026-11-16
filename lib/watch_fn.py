@@ -28,6 +28,7 @@ or by hand: `duo watch-fn`. Needs the udev uaccess rule for hidraw access.
 
 import json
 import os
+import re
 import select
 import subprocess
 import sys
@@ -101,6 +102,12 @@ def load_overrides():
     return table
 
 
+# What gdbus prints when gsd-power is running without its Screen interface
+# (GNOME 49+). From issue #2, GNOME Shell 50.4: "GDBus.Error:org.freedesktop.
+# DBus.Error.UnknownMethod: No such interface ..." on the object path.
+GSD_GONE = re.compile(r"UnknownMethod|UnknownInterface|No such interface")
+
+
 # Codes with no action here are logged once per run. 0x3d arrived 41 times
 # on 2026-09-27, docked and on Bluetooth, often every 30 s or so and right
 # after the keyboard connected: that reads like a status report from the
@@ -112,6 +119,8 @@ class Dispatcher:
         self.unhandled = {}  # action -> times seen this run
         self.keys = None  # uinput_keys.VirtualKeys, made on first use
         self.keys_failed = False
+        self.gsd_gone = False  # gsd-power answered and has no Screen interface
+        self.run_error = ""  # the last line of stderr from the last run()
 
     def virtual_keys(self):
         """The virtual brightness keys, or None when /dev/uinput is closed to us."""
@@ -167,13 +176,17 @@ class Dispatcher:
         self.children = still_running
 
     def run(self, argv):
-        """Run argv to completion; True when it exited 0."""
+        """Run argv to completion; True when it exited 0. The last line it
+        wrote to stderr is kept in run_error."""
+        self.run_error = ""
         try:
-            return subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                  timeout=5).returncode == 0
+            p = subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                               timeout=5)
         except (OSError, subprocess.TimeoutExpired) as e:
             log(f"failed to run {argv[0]}: {e}")
             return False
+        self.run_error = (p.stderr.decode(errors="replace").strip().splitlines() or [""])[-1]
+        return p.returncode == 0
 
     def gsd_screen(self, method):
         # GNOME settings-daemon's own brightness path: applies the change AND
@@ -181,10 +194,18 @@ class Dispatcher:
         # Blocking, so the follow-up second-panel sync reads the updated level.
         # GNOME 49 dropped this interface (backlight moved into Mutter), so
         # False here is expected there and brightness() falls back.
-        return self.run(["gdbus", "call", "--session",
-                         "--dest", "org.gnome.SettingsDaemon.Power",
-                         "--object-path", "/org/gnome/SettingsDaemon/Power",
-                         "--method", f"org.gnome.SettingsDaemon.Power.Screen.{method}"])
+        if self.gsd_gone:
+            return False
+        ok = self.run(["gdbus", "call", "--session",
+                       "--dest", "org.gnome.SettingsDaemon.Power",
+                       "--object-path", "/org/gnome/SettingsDaemon/Power",
+                       "--method", f"org.gnome.SettingsDaemon.Power.Screen.{method}"])
+        # Asked once per run, not once per press. Only when gsd-power itself
+        # says the interface does not exist: a daemon that is not up yet
+        # (ServiceUnknown) will be, and must be asked again.
+        if not ok and GSD_GONE.search(self.run_error):
+            self.gsd_gone = True
+        return ok
 
     def brightness(self, method):
         if self.gsd_screen(method):
@@ -202,9 +223,12 @@ class Dispatcher:
                 return
             except OSError as e:
                 log(f"virtual brightness key failed: {e.strerror}")
-        # Last resort: `duo brightness` sets both panels through Mutter. No
-        # sync-backlight after it: that writes sysfs behind Mutter's back, and
-        # GNOME's slider then sticks at the bottom panel's stale level.
+        # Without the virtual key: `duo brightness` sets both panels through
+        # Mutter. No sync-backlight after it: that writes sysfs behind
+        # Mutter's back, and GNOME's slider then sticks at the bottom panel's
+        # stale level. It runs to the end before the next press is read: each
+        # step reads the level and sets a new one, and two at once would both
+        # start from the same level and count as one.
         direction = "up" if method == "StepUp" else "down"
         if not self.run([DUO, "brightness", direction]):
             log(f"brightness {direction} failed: run `duo brightness {direction}` "

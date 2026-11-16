@@ -410,6 +410,10 @@ class BrightnessStep(unittest.TestCase):
         lights = [{"connector": TOP}, self.light("HDMI-1", 50)]
         self.assertEqual(displayctl.brightness_targets(lights, up=True), {})
 
+    def test_an_entry_without_a_range_is_skipped_not_a_crash(self):
+        lights = [{"connector": TOP, "value": 120, "active": True}]
+        self.assertEqual(displayctl.brightness_targets(lights, up=True), {})
+
     def test_rejects_anything_but_up_or_down(self):
         self.assertEqual(displayctl.run(["brightness", "sideways"]), 64)
 

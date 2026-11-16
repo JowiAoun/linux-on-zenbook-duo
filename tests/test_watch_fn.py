@@ -153,6 +153,44 @@ class Brightness(unittest.TestCase):
         # Mutter already set both panels; a sysfs sync would hide it from GNOME.
         self.assertEqual(d.spawned, [])
 
+    def gsd_answers(self, d, text):
+        """Make d.run fail gdbus with `text` on stderr, the way gdbus does."""
+        def run(argv):
+            d.ran.append(argv)
+            d.run_error = text if argv[0] == "gdbus" else ""
+            return argv[0] != "gdbus"
+        d.run = run
+
+    def test_gsd_power_is_asked_once_when_its_interface_is_gone(self):
+        # The line gdbus printed on GNOME Shell 50.4 (issue #2).
+        d = self.recorder(failing=(), keys=FakeKeys())
+        self.gsd_answers(d, "Error: GDBus.Error:org.freedesktop.DBus.Error.UnknownMethod: "
+                            "No such interface \u201corg.gnome.SettingsDaemon.Power.Screen\u201d "
+                            "on object at path /org/gnome/SettingsDaemon/Power")
+        for _ in range(3):
+            d.dispatch(0x20, "brightness-up")
+        self.assertEqual(len([a for a in d.ran if a[0] == "gdbus"]), 1)
+        self.assertEqual(len(d.virtual_keys().tapped), 3)
+
+    def test_gsd_power_that_is_not_up_yet_is_asked_again(self):
+        # At login gsd-power can be a moment late. That is not GNOME 49.
+        d = self.recorder(failing=(), keys=FakeKeys())
+        self.gsd_answers(d, "Error: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: "
+                            "The name org.gnome.SettingsDaemon.Power was not provided by any .service files")
+        for _ in range(3):
+            d.dispatch(0x20, "brightness-up")
+        self.assertEqual(len([a for a in d.ran if a[0] == "gdbus"]), 3)
+        self.assertFalse(d.gsd_gone)
+
+    def test_run_keeps_the_last_line_of_stderr(self):
+        d = watch_fn.Dispatcher()
+        self.assertFalse(d.run([sys.executable, "-c",
+                                "import sys; print('one', file=sys.stderr); "
+                                "print('two', file=sys.stderr); sys.exit(3)"]))
+        self.assertEqual(d.run_error, "two")
+        self.assertTrue(d.run([sys.executable, "-c", "pass"]))
+        self.assertEqual(d.run_error, "")
+
     def test_a_failed_fallback_is_logged(self):
         from unittest import mock
         d = self.recorder(failing=("gdbus", watch_fn.DUO))

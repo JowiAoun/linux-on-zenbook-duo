@@ -624,7 +624,8 @@ def brightness_targets(lights, up):
         return (light["value"] - light["min"]) / (light["max"] - light["min"])
 
     usable = {light["connector"]: light for light in lights
-              if light.get("connector") in (TOP, BOTTOM) and "value" in light
+              if light.get("connector") in (TOP, BOTTOM)
+              and all(isinstance(light.get(k), int) for k in ("value", "min", "max"))
               and light.get("active", True) and light["max"] > light["min"]}
     if TOP not in usable:
         return {}
@@ -641,8 +642,10 @@ def cmd_brightness(args):
     GNOME 49 removed org.gnome.SettingsDaemon.Power.Screen (read from
     gnome-shell's data/dbus-interfaces on the gnome-50 branch, 2026-10-19) and
     GNOME Shell offers no D-Bus method to step brightness, so the keys go to
-    Mutter directly. GNOME Shell sees the change, moves its slider and shows
-    its OSD (backlights-changed in js/misc/brightnessManager.js) -- VERIFY-ON-HW.
+    Mutter directly. Both panels change. GNOME Shell shows no pop-up for a
+    change made this way (measured on 50.1 in PR #4 and on 50.4 in issue #2);
+    its slider followed on 50.4 and did not on 50.1. watch-fn's virtual key
+    (lib/uinput_keys.py) is what gets the pop-up.
     """
     if args not in (["up"], ["down"]):
         print(__doc__, file=sys.stderr)
