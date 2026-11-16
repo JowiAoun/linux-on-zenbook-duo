@@ -5,14 +5,18 @@ GNOME 49+ handles the brightness keys inside GNOME Shell: its keybindings
 step the slider, set every panel through Mutter and show the OSD
 (js/misc/brightnessManager.js, gnome-50 branch, read 2026-10-19). Nothing on
 D-Bus does the same: a backlight changed through Mutter moves the panel but
-GNOME Shell deliberately neither shows the OSD nor moves its slider for it.
+GNOME Shell shows no OSD for it. The slider is less clear: it stayed put on
+GNOME Shell 50.1 (measured 2026-10-19, PR #4) and followed on 50.4 (issue #2).
 The Duo keyboard's brightness keys arrive as ASUS vendor reports that never
 become key events (mainline hid-asus has no entry for it, V8), so watch-fn
 presses KEY_BRIGHTNESSUP / KEY_BRIGHTNESSDOWN on this device instead and GNOME
 does the rest exactly as for a natively-handled key.
 
-Needs write access to /dev/uinput: system/45-udev.sh tags it uaccess, the
-same grant the hidraw nodes get. stdlib only.
+Needs write access to /dev/uinput, which is root's unless the install was
+run with --brightness-osd (system/45-udev.sh). That grant is much wider than
+this module: whoever holds /dev/uinput can create any keyboard, not only
+these two keys. Without it watch-fn steps the panels through Mutter. stdlib
+only.
 """
 
 import fcntl

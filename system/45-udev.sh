@@ -3,9 +3,10 @@
 #   - hidraw access (uaccess ACL for the logged-in user) to the detachable
 #     keyboard's vendor interface over USB (0b05:1b2c), and with --bluetooth-fn
 #     to its Bluetooth node (0b05:1b2d) — used by kb-backlight/kb-init/fn-*
-#   - uaccess on /dev/uinput, so watch-fn can press the brightness keys GNOME
-#     49+ only handles as real key events (lib/uinput_keys.py). Same reach as
-#     the hidraw grant: the user at the seat, while they are at it
+#   - with --brightness-osd, uaccess on /dev/uinput, so watch-fn can press the
+#     brightness keys GNOME 49+ only handles as real key events
+#     (lib/uinput_keys.py). A far wider grant than the hidraw one: whoever
+#     holds it can type anything into the session at the seat
 #   - a world-writable native kbd-backlight LED node (any local account can
 #     set the level), if/when the kernel grows one (see docs/HARDWARE.md, V8)
 #
@@ -28,9 +29,6 @@ read -r -d '' RULES <<'EOF_RULES' || true
 # carries every key typed, so it stays root's (measured 2026-10-31: of the six
 # interfaces only :1.4 declares report 0x5a, and :1.0 is the boot keyboard).
 SUBSYSTEM=="hidraw", DEVPATH=="*:1.4/0003:0B05:1B2C.*", TAG+="uaccess"
-# uinput: watch-fn presses KEY_BRIGHTNESSUP/DOWN on a virtual keyboard so GNOME
-# 49+ handles the brightness keys itself (slider + OSD; see lib/uinput_keys.py).
-KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
 # Native keyboard-backlight LED (absent on current kernels; harmless if unmatched).
 ACTION=="add", SUBSYSTEM=="leds", KERNEL=="asus::kbd_backlight", RUN+="/bin/chmod 0666 /sys%p/brightness"
 EOF_RULES
@@ -44,6 +42,20 @@ if feature_on BLUETOOTH_FN 0; then
   log "Bluetooth Fn keys on: programs you run can read what is typed on the keyboard while it is on Bluetooth, by you or by another account after a user switch"
 else
   log "Bluetooth Fn keys off: they work docked; --bluetooth-fn turns them on over Bluetooth too"
+fi
+
+# /dev/uinput lets its holder create any keyboard or mouse, not only the two
+# brightness keys watch-fn presses, and the kernel has no way to take an open
+# one back: a process that opened it during one account's session can still
+# type after a switch to another's. So it is opt-in too: --brightness-osd.
+# Without it the brightness keys still work on GNOME 49+, through Mutter,
+# with no pop-up.
+if feature_on BRIGHTNESS_OSD 0; then
+  RULES+=$'\n'"# --brightness-osd: watch-fn presses KEY_BRIGHTNESSUP/DOWN on a virtual keyboard."
+  RULES+=$'\n''KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"'
+  log "brightness pop-up on: programs you run can type into the session at this seat, another account's included after a user switch"
+else
+  log "brightness pop-up off: on GNOME 49+ the keys step both panels without GNOME's pop-up; --brightness-osd adds it"
 fi
 
 if install_conf "$RULES_DST" "$RULES"; then
@@ -65,5 +77,14 @@ if install_conf "$RULES_DST" "$RULES"; then
       case "$tags" in *:uaccess:*) continue ;; esac
       setfacl -b "$node" 2>/dev/null && log "cleared the session's access to $node (not the vendor interface)" || true
     done
+    # The same for /dev/uinput when no rule tags it any more (ours is gone and
+    # nothing else, such as Steam's rules, opens it).
+    if [ -c /dev/uinput ]; then
+      tags="$(udevadm info --query=property --property=CURRENT_TAGS --value /dev/uinput 2>/dev/null || true)"
+      case "$tags" in
+        *:uaccess:*) ;;
+        *) setfacl -b /dev/uinput 2>/dev/null || true ;;
+      esac
+    fi
   fi
 fi

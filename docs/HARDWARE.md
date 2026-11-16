@@ -144,6 +144,25 @@ kept so code comments and the research stay cross-referenced.
   (`TOUCH_MAPPING=1`), `duo set-tablet-mapping` by hand. `--identify` asks you
   to touch the bottom screen and reads each controller's interrupt count in
   `/proc/interrupts`, which tells them apart with no root and no change.
+- **Brightness keys on GNOME 49 and later.** GNOME 49 moved backlight control
+  from gnome-settings-daemon into Mutter and removed
+  `org.gnome.SettingsDaemon.Power.Screen`. On GNOME Shell 50.4 the old call
+  answers `UnknownMethod: No such interface` (issue #2, 2026-09-19), and
+  `watch-fn` used to throw that away, so the keys were logged and did nothing.
+  Mutter's `DisplayConfig` now has a `Backlight` property (per connector:
+  active, min, max, value) and a `SetBacklight` method. `duo brightness
+  up|down` steps both panels through it, one of GNOME's 20 slider steps
+  (`SCALE_VALUE_N_STEPS` in gnome-shell `js/misc/brightnessManager.js`,
+  gnome-50 branch, read 2026-10-19). Measured on a UX8406MA: both panels
+  change and GNOME shows no pop-up (50.1 in PR #4, 50.4 in issue #2). The
+  Quick Settings slider followed on 50.4 and stayed put on 50.1. The pop-up
+  only comes when GNOME Shell handles a real key, so with `--brightness-osd`
+  `watch-fn` presses `KEY_BRIGHTNESSUP`/`DOWN` on a uinput virtual keyboard
+  (measured on 50.1, keyboard on Bluetooth: pop-up, slider and both panels).
+  That needs `/dev/uinput`, which lets its holder type anything into the
+  session at the seat, so it is off by default. A sysfs write to the bottom
+  panel after a Mutter change is skipped on purpose: Mutter does not see it,
+  and the slider then sticks at that panel's old level (measured on 50.1).
 
 ## Speakers
 

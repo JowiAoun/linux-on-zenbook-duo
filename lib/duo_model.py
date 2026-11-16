@@ -77,6 +77,8 @@ FEATURES = [
     Feature("amp-check", "notify when the CS35L41 speaker amps fail to power up", scope="system", flag="amp-check"),
     Feature("bluetooth-fn", "Fn keys over Bluetooth too (programs you run can then read what anyone types on it)",
             scope="system", flag="bluetooth-fn"),
+    Feature("brightness-osd", "GNOME 49+: brightness keys show GNOME's pop-up (programs you run can then type into the session at this seat)",
+            scope="system", flag="brightness-osd"),
 ]
 
 # ── the knobs, as the screen edits them ──────────────────────────────────────

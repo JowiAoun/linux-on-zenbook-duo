@@ -124,6 +124,7 @@ sudo ./install.sh --system --no-palm-rejection
 sudo ./install.sh --system --no-amp-check
 sudo ./install.sh --system --no-hwe-kernel        # Ubuntu: leave the kernel alone
 sudo ./install.sh --system --bluetooth-fn         # Fn keys over Bluetooth too (see below)
+sudo ./install.sh --system --brightness-osd       # GNOME 49+: brightness pop-up (see below)
 ```
 
 The Fn keys and the keyboard backlight work docked out of the box. Over
@@ -132,6 +133,14 @@ everything, typing included, so `--bluetooth-fn` lets any program you run
 read what is typed on it. That includes another account's password after a
 user switch, since a node that is already open stays open. Docked, the session only gets the vendor
 interface (USB interface 4), which carries the Fn keys and no typing.
+
+On GNOME 49 and later (Ubuntu 25.10, 26.04) the brightness keys change both
+panels out of the box, without GNOME's brightness pop-up. `--brightness-osd`
+adds the pop-up by pressing a virtual brightness key, and for that it opens
+`/dev/uinput` to your session. Any program you run can then type into the
+session at the seat, another account's included after a user switch. Steam's
+controller rules open the same node, so if you have those the pop-up already
+works.
 
 The speaker chain is opt-in — the numbers are measured on one unit and
 documented, but taste is yours:
