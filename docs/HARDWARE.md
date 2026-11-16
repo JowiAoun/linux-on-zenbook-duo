@@ -17,7 +17,7 @@ kept so code comments and the research stay cross-referenced.
 | Keyboard, USB (pogo pins) | `0b05:1b2c` "ASUS Zenbook Duo Keyboard", six HID interfaces, hid-generic + hid-multitouch |
 | Keyboard, Bluetooth | `0b05:1b2d` — same keyboard, different product id per transport |
 | Touchpad | part of the keyboard: one external USB combo device |
-| Digitizers | top ELAN9008 (ACPI `I2C0.TPL0`), bottom ELAN9009 (`I2C5.TPLX`). This unit: `04f3:4259` and `04f3:42ec`; alesya-h's unit: `425b` and `425a`, so code pairs them by ACPI name. Which is which is read from alesya-h's script and agrees with the buses here; `duo set-tablet-mapping --identify` checks it on a unit |
+| Digitizers | top ELAN9008 (ACPI `I2C0.TPL0`), bottom ELAN9009 (`I2C5.TPLX`). This unit: `04f3:4259` and `04f3:42ec`; alesya-h's unit: `425b` and `425a`, so code pairs them by ACPI name. Which is which is read from alesya-h's script and agrees with the buses here, and a second unit confirmed it on hardware (issue #1: `425b`/`425a`, panels `SDC 0x419d`, GNOME Shell 50.4); `duo set-tablet-mapping --identify` checks it on a unit |
 | Backlights | `intel_backlight` (top), `card1-eDP-2-backlight` (bottom, tracks the real level), `asus_screenpad` (reports a fixed value and does not track anything visible — never sync to it) |
 | Wi-Fi | Meteor Lake CNVi `8086:7e40`; RF module typically AX211, some units BE200 (post-suspend drops) |
 | Audio | Intel SOF `sof-audio-pci-intel-mtl`; ALC294 codec + two Cirrus CS35L41 amps |

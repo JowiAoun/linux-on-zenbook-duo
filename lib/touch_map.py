@@ -50,7 +50,10 @@ import displayctl  # noqa: E402  (imports without gi; only mutter_monitors() nee
 # i2c_designware.3. This unit has them on the same buses, and ACPI names them
 # I2C0.TPL0 and I2C5.TPLX (2026-09-27). Product ids differ between units
 # (425b/425a there, 4259/42ec here), so they are read from sysfs and never
-# written down. VERIFY-ON-HW on each new unit with --identify.
+# written down. A second UX8406MA confirmed the pairing by hand (issue #1,
+# 2026-09-19, GNOME Shell 50.4, ids 425b/425a, panels SDC 0x419d): with these
+# four values on both schemas its pen and touch landed on the right panels.
+# VERIFY-ON-HW on each new unit with --identify.
 PAIRING = {"ELAN9008": displayctl.TOP, "ELAN9009": displayctl.BOTTOM}
 
 # (schema, settings group, what it is): the finger and the pen of one
