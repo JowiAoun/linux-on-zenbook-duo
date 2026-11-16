@@ -1,9 +1,13 @@
 name: ci
 
+# Pull requests from forks wait for "Approve and run workflows" on the PR
+# (repo setting: approval for all external contributors). Any branch here can
+# be run by hand from the Actions tab with "Run workflow".
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   shell:
