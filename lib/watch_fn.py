@@ -131,8 +131,8 @@ class Dispatcher:
                 self.keys_failed = True
                 log(f"no virtual brightness keys ({uinput_keys.UINPUT_PATH}: "
                     f"{e.strerror}); stepping through Mutter instead, without "
-                    f"GNOME's OSD. `sudo ./install.sh --system` installs the "
-                    f"udev rule that opens it")
+                    f"GNOME's pop-up. `sudo ./install.sh --system --brightness-osd` "
+                    f"opens it; `./install.sh --help` says what that lets programs do")
         return self.keys
 
     def restore_backlight(self):

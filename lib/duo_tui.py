@@ -736,6 +736,9 @@ class Services(View):
         if f.name == "bluetooth-fn":
             on = "0005:0B05:1B2D" in dm._read("/etc/udev/rules.d/70-zenduo.rules").upper()
             return ("installed", "ok", "") if on else ("off", "off", "")
+        if f.name == "brightness-osd":
+            on = 'KERNEL=="uinput"' in dm._read("/etc/udev/rules.d/70-zenduo.rules")
+            return ("installed", "ok", "") if on else ("off", "off", "")
         return ("?", "off", "")
 
     def render(self, cv, r):

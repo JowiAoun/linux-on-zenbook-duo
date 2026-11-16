@@ -8,15 +8,19 @@
   removed `org.gnome.SettingsDaemon.Power.Screen`. `watch-fn` still called it
   and threw the error away, so on Ubuntu 26.04 (GNOME 50) the keys were read
   and logged but the brightness never changed
-- when that call fails, `watch-fn` presses a real brightness key on a
-  virtual keyboard (`/dev/uinput`), so GNOME Shell handles it exactly like a
-  built-in key: its slider moves, both panels follow and the brightness
-  pop-up appears. Nothing on D-Bus does that: GNOME Shell shows neither the
-  pop-up nor the slider change for a backlight set through Mutter
-- the udev rules now give the user at the seat write access to `/dev/uinput`
-  (`sudo ./install.sh --system`). Without it the keys fall back to setting
-  both panels through Mutter's `SetBacklight`, with no pop-up
-- the same step is available as `duo brightness up|down`
+- when that call fails, `watch-fn` sets both panels through Mutter's
+  `SetBacklight`, one of GNOME's 20 slider steps per press. The same step is
+  available as `duo brightness up|down`. GNOME shows no pop-up for a change
+  made this way
+- `sudo ./install.sh --system --brightness-osd` adds the pop-up: `watch-fn`
+  then presses a real brightness key on a virtual keyboard (`/dev/uinput`),
+  and GNOME Shell handles it exactly like a built-in key. It is off by
+  default because `/dev/uinput` is not limited to those two keys: any
+  program you run could type into the session at the seat, another account's
+  included after a user switch. Where something else already opens the node
+  (Steam's controller rules do), the pop-up works without the flag
+- gsd-power is asked once per run, not once per press, after it says the
+  interface is gone
 
 ### `duo` is a screen now; the command line is `duo-cli`
 

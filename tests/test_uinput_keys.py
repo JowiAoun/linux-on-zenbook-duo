@@ -32,5 +32,21 @@ class Layout(unittest.TestCase):
                          (224, 225))
 
 
+class Grant(unittest.TestCase):
+    """/dev/uinput lets its holder type anything, so the udev rule that opens
+    it must only be written when the install asked for it."""
+
+    def test_the_uinput_rule_is_opt_in(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, "..", "system", "45-udev.sh")) as f:
+            script = f.read()
+        always, _, rest = script.partition("EOF_RULES\n\n")
+        self.assertNotIn('KERNEL=="uinput"', always)
+        gate = rest.index("if feature_on BRIGHTNESS_OSD 0; then")
+        rule = rest.index('KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess"')
+        self.assertLess(gate, rule)
+        self.assertLess(rule, rest.index("\nelse\n", gate))
+
+
 if __name__ == "__main__":
     unittest.main()

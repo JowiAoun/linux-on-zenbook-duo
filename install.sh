@@ -21,6 +21,12 @@
 #                          default: there the keyboard has one node, so programs you
 #                          run can then read what is typed on it, by you or by another
 #                          account after a user switch
+#   --brightness-osd       GNOME 49+: the brightness keys show GNOME's pop-up, by
+#                          pressing a virtual key. Off by default: it opens
+#                          /dev/uinput, so programs you run can then type into the
+#                          session at this seat, another account's included after
+#                          a user switch. Without it the keys still change the
+#                          brightness, with no pop-up
 #   --no-watch-displays    don't run the dock policy daemon
 #   --no-watch-fn          don't run the keyboard hotkey daemon
 #   --watch-backlight      also run the bottom-panel backlight sync daemon
@@ -70,7 +76,7 @@ while [ $# -gt 0 ]; do
     --dry-run|-n)        DRY_RUN=1; SYSTEM_FLAGS+=(--dry-run); USER_FLAGS+=(--dry-run) ;;
     --force)             FORCE=1; SYSTEM_FLAGS+=(--force) ;;
     --prefix)            [ $# -ge 2 ] || die "--prefix needs a directory"; PREFIX="$2"; SYSTEM_FLAGS+=(--prefix "$2"); USER_FLAGS+=(--prefix "$2"); shift ;;
-    --hwe-kernel|--no-hwe-kernel|--psr-fix|--no-psr-fix|--palm-rejection|--no-palm-rejection|--amp-check|--no-amp-check|--bluetooth-fn|--no-bluetooth-fn)
+    --hwe-kernel|--no-hwe-kernel|--psr-fix|--no-psr-fix|--palm-rejection|--no-palm-rejection|--amp-check|--no-amp-check|--bluetooth-fn|--no-bluetooth-fn|--brightness-osd|--no-brightness-osd)
                          SYSTEM_FLAGS+=("$1") ;;
     --watch-displays)    WATCH_DISPLAYS=1; USER_FLAGS+=("$1") ;;
     --no-watch-displays) WATCH_DISPLAYS=0; USER_FLAGS+=("$1") ;;
