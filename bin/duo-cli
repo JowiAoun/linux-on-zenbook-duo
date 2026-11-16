@@ -411,7 +411,7 @@ cmd_doctor() {
   # Only the vendor interface should be open to the session: the others
   # include the keyboard itself, so reading one is reading every key typed.
   local u hid_found=0 node vendor open_vendor="" open_other=""
-  vendor=" $(cd / && python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import kb_init; print(" ".join(kb_init.target_nodes()))' "$LIB" 2>/dev/null || true) "
+  vendor=" $(cd / && { python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import kb_init; print(" ".join(kb_init.target_nodes()))' "$LIB" 2>/dev/null || true; }) "
   for u in /sys/class/hidraw/hidraw*/device/uevent; do
     [ -r "$u" ] || continue
     if grep -qi "0000${KBD_VID}:0000${KBD_PID}" "$u" 2>/dev/null; then

@@ -56,7 +56,9 @@ if install_conf "$RULES_DST" "$RULES"; then
         *) continue ;;
       esac
       case "$tags" in *:uaccess:*) continue ;; esac
-      setfacl -b "$node" 2>/dev/null && log "cleared the session's access to $node (not the vendor interface)" || true
+      if setfacl -b "$node" 2>/dev/null; then
+        log "cleared the session's access to $node (not the vendor interface)"
+      fi
     done
   fi
 fi
