@@ -139,6 +139,20 @@ class Brightness(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertIn("Permission denied", lines[0])
 
+    def test_with_uinput_the_daemon_says_so_once(self):
+        # Without this line `duo log` showed nothing about the path when
+        # /dev/uinput was open (issue #2).
+        from unittest import mock
+        d = Recorder()
+        d.virtual_keys = watch_fn.Dispatcher.virtual_keys.__get__(d)
+        lines = []
+        with mock.patch.object(uinput_keys, "VirtualKeys", return_value=FakeKeys()), \
+                mock.patch.object(watch_fn, "log", side_effect=lines.append):
+            self.assertIsNotNone(d.virtual_keys())
+            self.assertIsNotNone(d.virtual_keys())
+        self.assertEqual(len(lines), 1)
+        self.assertIn("virtual brightness key", lines[0])
+
     def test_gsd_power_handles_it_when_present(self):
         d = self.recorder(failing=())
         d.dispatch(0x20, "brightness-up")

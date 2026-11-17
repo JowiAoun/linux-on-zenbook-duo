@@ -328,10 +328,11 @@ dotfiles ([JowiAoun/dome](https://github.com/JowiAoun/dome)) consume it.
   default ([why](#customise)). Run `sudo ./install.sh --system --bluetooth-fn`.
   `duo log` names the flag when this is the reason.
 - **The bottom screen's brightness barely moves with the keys.** Docked, the
-  bottom screen is off, so only the top one changes. On GNOME 49 and later
-  each key moves both screens by the same ratio, so a bottom screen that
-  started much dimmer than the top moves much less. `duo enable
-  watch-backlight` keeps it matched to the top screen.
+  bottom screen is off, so only the top one changes. With GNOME's brightness
+  pop-up on GNOME 49 and later (`--brightness-osd`, or Steam's rules), GNOME
+  moves both screens by the same ratio, so a bottom screen that started much
+  dimmer than the top moves much less. `duo brightness up` sets both to the
+  same level, and `duo enable watch-backlight` keeps them matched.
 - **Sound is harsh and distorted after booting from Windows.** The CS35L41
   amps failed their power-up handshake; you get a desktop notification. Shut
   down fully (not a reboot). To stop it recurring, disable Fast Startup in

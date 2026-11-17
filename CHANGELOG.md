@@ -21,6 +21,14 @@
   (Steam's controller rules do), the pop-up works without the flag
 - gsd-power is asked once per run, not once per press, after it says the
   interface is gone
+- `duo log` says once which way the keys go: the virtual key or Mutter
+- off the laptop the keyboard is on Bluetooth, where the Fn keys need
+  `--bluetooth-fn`. `watch-fn` now names that flag when it cannot read the
+  keyboard there. Before, it said to re-run the plain install, which changes
+  nothing on Bluetooth
+- a re-run of `./install.sh --user` restarts each watcher that is already
+  running. A watcher started before an update kept the old code, and its old
+  advice, until the next login (issue #2)
 
 ### `duo` is a screen now; the command line is `duo-cli`
 

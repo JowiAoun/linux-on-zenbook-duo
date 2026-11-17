@@ -163,6 +163,13 @@ kept so code comments and the research stay cross-referenced.
   session at the seat, so it is off by default. A sysfs write to the bottom
   panel after a Mutter change is skipped on purpose: Mutter does not see it,
   and the slider then sticks at that panel's old level (measured on 50.1).
+  A real brightness key steps every active monitor that has a backlight, and
+  keeps their ratio: each panel's level is the slider times that panel's
+  share of the brightest one (`_sync()` in the same file, gnome-50 branch,
+  read 2026-11-17). Docked, eDP-2 is not active, so only the top panel
+  moves. A bottom panel that starts much dimmer than the top moves much
+  less. On 50.4 with `duo-watch-backlight` running, both panels went from
+  103 to 4 together (issue #2, 2026-11-17).
 
 ## Speakers
 

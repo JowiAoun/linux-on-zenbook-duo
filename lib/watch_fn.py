@@ -127,6 +127,12 @@ class Dispatcher:
         if self.keys is None and not self.keys_failed:
             try:
                 self.keys = uinput_keys.VirtualKeys()
+                # Said once, like the Mutter line below, so `duo log` always
+                # names the path. /dev/uinput can be open without
+                # --brightness-osd: Steam's controller rules open it too.
+                log(f"brightness keys: pressing a virtual brightness key on "
+                    f"{uinput_keys.UINPUT_PATH}, so GNOME handles it and shows "
+                    f"its pop-up")
             except OSError as e:
                 self.keys_failed = True
                 log(f"no virtual brightness keys ({uinput_keys.UINPUT_PATH}: "
