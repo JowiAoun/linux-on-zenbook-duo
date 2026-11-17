@@ -229,6 +229,14 @@ class ReEnumeration(unittest.TestCase):
         self.assertIn("not confirmed", loud)
         self.assertIn("udev", watch_fn.failure_message(13, 3, 8))
 
+    def test_a_refused_bluetooth_node_names_the_flag(self):
+        # Re-running the plain install does not open the Bluetooth node, so
+        # the hint has to name the flag that does (issue #2).
+        bt = watch_fn.failure_message(13, 3, 8, bluetooth=True)
+        self.assertIn("--bluetooth-fn", bt)
+        self.assertNotIn("--bluetooth-fn", watch_fn.failure_message(13, 3, 8))
+        self.assertNotIn("--bluetooth-fn", watch_fn.failure_message(1, 3, 8, bluetooth=True))
+
 
 class AbsentKeyboard(unittest.TestCase):
     """2026-09-05: the keyboard died on USB (enumerated, "can't set config",

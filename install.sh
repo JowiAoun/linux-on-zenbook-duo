@@ -209,7 +209,15 @@ user_phase() {
       # every run and logged "enabled" as if something had changed.
       if systemctl --user is-enabled --quiet "$unit" 2>/dev/null \
          && { [ "${3:-}" = oneshot ] || systemctl --user is-active --quiet "$unit" 2>/dev/null; }; then
-        log "$1: already enabled${3:+ (runs at login)}"
+        if [ "${3:-}" = oneshot ]; then
+          log "$1: already enabled (runs at login)"
+        else
+          # A running daemon keeps the code it started with, and a re-run is
+          # how new code arrives. Without this restart a watch-fn started
+          # before an update kept giving its old advice (issue #2).
+          run systemctl --user restart "$unit"
+          log "$1: restarted, so it runs the code just installed"
+        fi
       else
         run systemctl --user enable --now "$unit"
         log "$1: enabled"
@@ -411,4 +419,7 @@ if [ "$DRY_RUN" = 1 ]; then
 else
   log "next: 'duo doctor' for a full probe, 'duo features' to see what is on, 'duo config' for the knobs"
   log "      if the kernel or GRUB changed above, reboot to apply"
+  if [ "$DO_USER" != 1 ]; then
+    log "      duo-* daemons that are running keep their old code until ./install.sh --user or the next login"
+  fi
 fi

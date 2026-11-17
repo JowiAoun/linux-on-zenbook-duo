@@ -323,6 +323,15 @@ dotfiles ([JowiAoun/dome](https://github.com/JowiAoun/dome)) consume it.
   persists, `duo fn-probe` and attach the output to an issue. `duo toggle`
   saying *python3-gi missing*: your `python3` is a Nix/pyenv one; `duo` pins
   `/usr/bin/python3`, set `DUO_PYGI` if yours lives elsewhere.
+- **Fn keys and the keyboard light do nothing with the keyboard off the
+  laptop.** Off the laptop it is on Bluetooth, and there they are off by
+  default ([why](#customise)). Run `sudo ./install.sh --system --bluetooth-fn`.
+  `duo log` names the flag when this is the reason.
+- **The bottom screen's brightness barely moves with the keys.** Docked, the
+  bottom screen is off, so only the top one changes. On GNOME 49 and later
+  each key moves both screens by the same ratio, so a bottom screen that
+  started much dimmer than the top moves much less. `duo enable
+  watch-backlight` keeps it matched to the top screen.
 - **Sound is harsh and distorted after booting from Windows.** The CS35L41
   amps failed their power-up handshake; you get a desktop notification. Shut
   down fully (not a reboot). To stop it recurring, disable Fast Startup in

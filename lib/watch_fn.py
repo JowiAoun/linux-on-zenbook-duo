@@ -315,7 +315,7 @@ def settled_nodes(scan, sleep=time.sleep, tries=4, interval=0.5):
     return current
 
 
-def failure_message(rc, failures, delay):
+def failure_message(rc, failures, delay, bluetooth=False):
     """What to say when the handshake did not land, scaled to how long it has
     been failing: the first attempts after a dock routinely fail (the udev ACL
     lands a moment after the nodes appear), so they are not an alarm yet."""
@@ -323,6 +323,12 @@ def failure_message(rc, failures, delay):
         what = ("hidraw is not accessible yet" if rc == 13
                 else "waiting for the keyboard to echo the handshake")
         return f"{what} (attempt {failures}); retrying in {delay}s"
+    if rc == 13 and bluetooth:
+        # The plain install leaves the Bluetooth node to root, so re-running
+        # it without the flag changes nothing (issue #2, 2026-11-17).
+        return (f"hidraw is not accessible (attempt {failures}): the keyboard is on Bluetooth, "
+                f"and the Fn keys and keyboard backlight there need "
+                f"`sudo ./install.sh --system --bluetooth-fn`; retrying in {delay}s")
     if rc == 13:
         return (f"hidraw is not accessible (attempt {failures}): the udev rule is missing "
                 f"or not applied (sudo ./install.sh --system, then re-seat the keyboard); "
@@ -436,7 +442,8 @@ def main():
                     delay = min(60, 2 ** min(failures, 6))
                     retry_at = time.monotonic() + delay
                     if failures in (1, 3) or failures % 10 == 0:
-                        log(failure_message(rc, failures, delay))
+                        bt = all(kb_init.over_bluetooth(n) for n in nodes)
+                        log(failure_message(rc, failures, delay, bluetooth=bt))
             else:
                 # The pogo link can be present and dead at the same time
                 # (dock.keyboard_usb_configured): the device enumerated but
