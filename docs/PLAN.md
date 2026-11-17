@@ -180,8 +180,10 @@ and touch landing on the right one.
 `lib/touch_map.py` writes GNOME's `output` setting for each digitizer's
 finger and pen, with the connector as a fourth value because the panels are
 EDID twins, and `watch-displays` applies it once per start (done in the
-terminal, 2026-09-27). Still open: verify it with a finger and a pen on both
-panels, confirm the pairing with `--identify`, and add `toggle-bottom-touch`
+terminal, 2026-09-27). A second UX8406MA ran it on 2026-11-16 (issue #1):
+all four settings came out in place and the pen wrote on the panel it touched,
+on both. Still open: verify it with a finger on both panels, confirm the
+pairing with `--identify`, and add `toggle-bottom-touch`
 for palm resting while drawing. *Gate:* acceptance tests I-10..I-12 from the
 original plan.
 

@@ -53,6 +53,8 @@ import displayctl  # noqa: E402  (imports without gi; only mutter_monitors() nee
 # written down. A second UX8406MA confirmed the pairing by hand (issue #1,
 # 2026-09-19, GNOME Shell 50.4, ids 425b/425a, panels SDC 0x419d): with these
 # four values on both schemas its pen and touch landed on the right panels.
+# On 2026-11-16 this module wrote them there itself (commit 22edae1): all four
+# in place, and the pen wrote on the panel it touched, on both.
 # VERIFY-ON-HW on each new unit with --identify.
 PAIRING = {"ELAN9008": displayctl.TOP, "ELAN9009": displayctl.BOTTOM}
 
