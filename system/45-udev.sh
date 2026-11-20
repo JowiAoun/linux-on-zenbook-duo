@@ -42,6 +42,16 @@ if feature_on BLUETOOTH_FN 0; then
   log "Bluetooth Fn keys on: programs you run can read what is typed on the keyboard while it is on Bluetooth, by you or by another account after a user switch"
 else
   log "Bluetooth Fn keys off: they work docked; --bluetooth-fn turns them on over Bluetooth too"
+  # An earlier install opened the Bluetooth node by default, so an upgrade
+  # with the keyboard off the laptop turned every Fn key off, brightness
+  # included, and only the journal said why (PR #4, 2026-11-20).
+  for dev in /sys/class/hidraw/hidraw*/device; do
+    case "$(readlink -f "$dev")" in
+      */0005:0B05:1B2D.*)
+        warn "the keyboard is on Bluetooth right now: after this its Fn keys (brightness included) and its backlight do nothing until it is docked. Re-run with --bluetooth-fn to keep them on Bluetooth"
+        break ;;
+    esac
+  done
 fi
 
 # /dev/uinput lets its holder create any keyboard or mouse, not only the two
@@ -76,7 +86,10 @@ if install_conf "$RULES_DST" "$RULES"; then
       esac
       case "$tags" in *:uaccess:*) continue ;; esac
       if setfacl -b "$node" 2>/dev/null; then
-        log "cleared the session's access to $node (not the vendor interface)"
+        case "$(readlink -f "/sys/class/hidraw/${node#/dev/}/device")" in
+          */0005:*) log "cleared the session's access to $node (the keyboard on Bluetooth; --bluetooth-fn keeps it)" ;;
+          *) log "cleared the session's access to $node (not the vendor interface)" ;;
+        esac
       fi
     done
     # The same for /dev/uinput when no rule tags it any more (ours is gone and
@@ -89,4 +102,14 @@ if install_conf "$RULES_DST" "$RULES"; then
       esac
     fi
   fi
+fi
+
+# Steam's rules (the snap's 70-snap.steam.rules, measured 2026-11-20 in PR #4)
+# open /dev/uinput to the session too. Then watch-fn uses the virtual key
+# without --brightness-osd, and a tester should know why.
+if [ "$DRY_RUN" != 1 ] && ! feature_on BRIGHTNESS_OSD 0 && [ -c /dev/uinput ]; then
+  tags="$(udevadm info --query=property --property=CURRENT_TAGS --value /dev/uinput 2>/dev/null || true)"
+  case "$tags" in
+    *:uaccess:*) log "another udev rule (Steam's, for one) opens /dev/uinput to the session (tags $tags), so the brightness pop-up works without --brightness-osd" ;;
+  esac
 fi

@@ -134,13 +134,24 @@ read what is typed on it. That includes another account's password after a
 user switch, since a node that is already open stays open. Docked, the session only gets the vendor
 interface (USB interface 4), which carries the Fn keys and no typing.
 
+Upgrading from an install before 2026-10-31 with the keyboard on Bluetooth?
+Those installs opened the Bluetooth node by default. Re-installing without
+`--bluetooth-fn` takes that away, and every Fn key stops, brightness
+included, until you dock the keyboard or add the flag. The installer warns
+when the keyboard is on Bluetooth as it runs.
+
 On GNOME 49 and later (Ubuntu 25.10, 26.04) the brightness keys change both
 panels out of the box, without GNOME's brightness pop-up. `--brightness-osd`
 adds the pop-up by pressing a virtual brightness key, and for that it opens
 `/dev/uinput` to your session. Any program you run can then type into the
 session at the seat, another account's included after a user switch. Steam's
 controller rules open the same node, so if you have those the pop-up already
-works.
+works. The Steam snap's rule is `/etc/udev/rules.d/70-snap.steam.rules`. The
+installer says when another rule opens the node, and `duo log` says which
+way the keys go. To try the keys without the pop-up while Steam's rule is
+there, run `sudo setfacl -b /dev/uinput` and then
+`systemctl --user restart duo-watch-fn`. Steam's rule gives the access back
+the next time you log in.
 
 The speaker chain is opt-in — the numbers are measured on one unit and
 documented, but taste is yours:

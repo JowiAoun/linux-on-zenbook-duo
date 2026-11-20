@@ -29,6 +29,12 @@
 - a re-run of `./install.sh --user` restarts each watcher that is already
   running. A watcher started before an update kept the old code, and its old
   advice, until the next login (issue #2)
+- upgrading with the keyboard on Bluetooth: installs before 2026-10-31
+  opened its Bluetooth node by default, so re-installing without
+  `--bluetooth-fn` turns every Fn key off there, brightness included. The
+  installer now warns when the keyboard is on Bluetooth as it runs, and says
+  when another udev rule (the Steam snap's, for one) opens `/dev/uinput`
+  (PR #4)
 
 ### `duo` is a screen now; the command line is `duo-cli`
 

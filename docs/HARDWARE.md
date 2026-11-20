@@ -170,6 +170,15 @@ kept so code comments and the research stay cross-referenced.
   moves. A bottom panel that starts much dimmer than the top moves much
   less. On 50.4 with `duo-watch-backlight` running, both panels went from
   103 to 4 together (issue #2, 2026-11-17).
+  Re-tested on 50.1 at commit `3da6acc` (PR #4, 2026-11-20, keyboard on
+  Bluetooth, both panels on). The bottom panel matched the top on every
+  press, out of 400, in both modes. With the virtual key: pop-up, the slider
+  moves, 187 to 246 (up 3 times) to 201 (down 3 times). Through Mutter: no
+  pop-up, the slider stays put, 201 to 247 to 187. The Steam snap's
+  `/etc/udev/rules.d/70-snap.steam.rules` tags `/dev/uinput` with `uaccess`
+  (`CURRENT_TAGS=:uaccess:snap_steam_steam:seat:`), so `watch-fn` used the
+  virtual key without `--brightness-osd`. The Mutter run needed
+  `sudo setfacl -b /dev/uinput` first.
 
 ## Speakers
 
