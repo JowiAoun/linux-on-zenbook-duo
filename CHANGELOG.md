@@ -117,6 +117,11 @@
   wrote the mapping to `~/.config/glib-2.0/settings/keyfile`, which GNOME
   never reads, and read it back from there as "in place". It now runs
   `/usr/bin/gsettings` whenever that exists, without Nix's library path
+- `duo set-tablet-mapping`, `duo doctor`, the layout commands and the watcher
+  run the system `python3` without a Nix `LD_LIBRARY_PATH`. With one, its
+  PyGObject loaded Nix's glib, which on a newer Nix needs a newer glibc than
+  Ubuntu's, and every command said PyGObject was missing. When the import
+  really fails, the message now says why
 - Bluetooth earbuds no longer drop to mono phone quality for every app when
   Discord or a browser opens the microphone: WirePlumber's headset autoswitch
   is off (`zenduo.bluetoothStereo`, `./install.sh --no-bluetooth-stereo` to

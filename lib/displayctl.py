@@ -67,14 +67,26 @@ GI_MISSING = ("displayctl: python3-gi (PyGObject) is missing for this interprete
 try:
     from gi.repository import Gio, GLib  # python3-gi, installed by system/10-packages.sh
     HAVE_GI = True
-except ImportError:
+    GI_ERROR = ""
+except ImportError as e:
     Gio = GLib = None
     HAVE_GI = False
+    GI_ERROR = str(e)
+
+
+def gi_missing(error=None):
+    """GI_MISSING, plus why the import failed when gi is there but would not
+    load. That reads as "missing" too, and the cause is elsewhere: on
+    2026-11-22 it was a Nix glib on LD_LIBRARY_PATH that needed GLIBC_2.43."""
+    error = GI_ERROR if error is None else error
+    if not error or error.startswith("No module named"):
+        return GI_MISSING
+    return f"{GI_MISSING}; the import failed with: {printable(error)}"
 
 
 def _require_gi():
     if not HAVE_GI:
-        raise DisplayCtlError(GI_MISSING, 1)
+        raise DisplayCtlError(gi_missing(), 1)
 
 TOP = "eDP-1"
 BOTTOM = "eDP-2"

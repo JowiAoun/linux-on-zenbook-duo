@@ -27,6 +27,14 @@ export ZENDUO_CONF_EXAMPLE="${ZENDUO_CONF_EXAMPLE:-$DUO_ROOT/config/zenduo.conf.
 # watch_*, speaker_dsp) use plain python3 and work with either. Override with
 # DUO_PYGI if python3-gi lives elsewhere (the Nix package sets it).
 PYGI="${DUO_PYGI:-/usr/bin/python3}"
+# The system interpreter runs without a Nix library path. Given one, it loads
+# Nix's glib in place of its own, and once that glib needs a newer glibc the
+# gi import fails (2026-11-22: Nix glib 2.90.0 wants GLIBC_2.43, Ubuntu 24.04
+# has 2.39). A python named by DUO_PYGI keeps the environment it was given.
+PYGI_RUN=("$PYGI")
+if [ -z "${DUO_PYGI:-}" ]; then
+  PYGI_RUN=(env -u LD_LIBRARY_PATH -u GIO_MODULE_DIR -u GIO_EXTRA_MODULES -u GI_TYPELIB_PATH "$PYGI")
+fi
 
 # Knobs from ~/.config/zenduo/zenduo.conf, handed to the daemons as environment.
 # A value already in the environment wins (the home-manager units set it).
@@ -385,7 +393,7 @@ cmd_doctor() {
   else
     ck WARN 0 "no session bus/gdbus — skipping Mutter check (TTY?)"
   fi
-  if [ -x "$PYGI" ] && ( cd / && "$PYGI" -c 'import gi' ) >/dev/null 2>&1; then
+  if [ -x "$PYGI" ] && ( cd / && "${PYGI_RUN[@]}" -c 'import gi' ) >/dev/null 2>&1; then
     ck PASS 0 "PyGObject importable by $PYGI"
   else
     ck WARN 0 "PyGObject missing for $PYGI — install python3-gi (sudo ./install.sh --system does)"
@@ -457,7 +465,7 @@ cmd_doctor() {
   # Whether each panel's touch and pen land on that panel: GNOME's own guess
   # puts both on the top one.
   local tm_out="" tm_rc=0
-  tm_out="$("$PYGI" "$LIB/touch_map.py" --check 2>&1)" || tm_rc=$?
+  tm_out="$("${PYGI_RUN[@]}" "$LIB/touch_map.py" --check 2>&1)" || tm_rc=$?
   case "$tm_rc" in
     0) ck PASS 0 "$tm_out" ;;
     1) ck WARN 0 "$tm_out" ;;
@@ -760,7 +768,7 @@ cmd_set_tablet_mapping() {
   # touch_map.py asks Mutter for the panels' EDIDs, so it runs under the python
   # that has PyGObject, like displayctl. The reasons it writes four values and
   # not the three GNOME documents are at the top of that file.
-  "$PYGI" "$LIB/touch_map.py" "$@"
+  "${PYGI_RUN[@]}" "$LIB/touch_map.py" "$@"
 }
 
 cmd_watch_rotation() {
@@ -807,7 +815,7 @@ cmd_layout() {
     cmd_layout_login "$@"
     return $?
   fi
-  "$PYGI" "$LIB/displayctl.py" layout "$@"
+  "${PYGI_RUN[@]}" "$LIB/displayctl.py" layout "$@"
 }
 
 cmd_layout_login() {
@@ -1030,10 +1038,10 @@ case "$cmd" in
   enable)             cmd_enable "$@" ;;
   disable)            cmd_disable "$@" ;;
   config)             cmd_config "$@" ;;
-  top|bottom|both|toggle|brightness) "$PYGI" "$LIB/displayctl.py" "$cmd" "$@" ;;
+  top|bottom|both|toggle|brightness) "${PYGI_RUN[@]}" "$LIB/displayctl.py" "$cmd" "$@" ;;
   layout)             cmd_layout "$@" ;;
-  watch-displays)     exec "$PYGI" "$LIB/watch_displays.py" "$@" ;;
-  apply-displays)     exec "$PYGI" "$LIB/watch_displays.py" --once "$@" ;;
+  watch-displays)     exec "${PYGI_RUN[@]}" "$LIB/watch_displays.py" "$@" ;;
+  apply-displays)     exec "${PYGI_RUN[@]}" "$LIB/watch_displays.py" --once "$@" ;;
   sync-backlight)     cmd_sync_backlight "$@" ;;
   watch-backlight)    cmd_watch_backlight "$@" ;;
   kb-init)            cmd_kb_init "$@" ;;

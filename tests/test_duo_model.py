@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 import duo_model as dm  # noqa: E402
@@ -236,6 +237,34 @@ class ResultTest(unittest.TestCase):
         rc, _out, err = dm.run(["/nonexistent/duo-cli", "x"])
         self.assertEqual(rc, 127)
         self.assertIn("not found", err)
+
+
+
+class PygiEnvTest(unittest.TestCase):
+    NIX = {"PATH": "/usr/bin", "HOME": "/home/u",
+           "LD_LIBRARY_PATH": "/nix/store/x-glib-2.90.0/lib",
+           "GIO_EXTRA_MODULES": "/nix/store/y/lib/gio/modules",
+           "GI_TYPELIB_PATH": "/nix/store/z/lib/girepository-1.0"}
+
+    def test_the_system_python_runs_without_nix_libraries(self):
+        with mock.patch.dict(os.environ, self.NIX, clear=True):
+            self.assertEqual(dm.pygi_env(), {"PATH": "/usr/bin", "HOME": "/home/u"})
+
+    def test_a_python_named_by_duo_pygi_keeps_its_environment(self):
+        with mock.patch.dict(os.environ, dict(self.NIX, DUO_PYGI="/nix/store/p/bin/python3"), clear=True):
+            self.assertIsNone(dm.pygi_env())
+
+    def test_read_displays_hands_it_over(self):
+        seen = {}
+
+        def fake_run(argv, timeout=30, env=None):
+            seen["env"] = env
+            return 1, "", "no Mutter here"
+
+        with mock.patch.dict(os.environ, self.NIX, clear=True), \
+             mock.patch.object(dm, "run", side_effect=fake_run):
+            dm.read_displays()
+        self.assertNotIn("LD_LIBRARY_PATH", seen["env"])
 
 
 if __name__ == "__main__":

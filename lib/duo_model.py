@@ -34,6 +34,10 @@ ROOT = os.path.normpath(os.path.join(HERE, ".."))
 CLI = os.path.join(ROOT, "bin", "duo-cli")
 DISPLAYCTL = os.path.join(HERE, "displayctl.py")
 PYGI = os.environ.get("DUO_PYGI", "/usr/bin/python3")
+# The system interpreter runs without a Nix library path, the same rule as
+# PYGI_RUN in bin/duo-cli: given one, its gi loads Nix's glib, which can need
+# a newer glibc than the system has (GLIBC_2.43 on 2026-11-22).
+NIX_LIB_VARS = ("LD_LIBRARY_PATH", "GIO_MODULE_DIR", "GIO_EXTRA_MODULES", "GI_TYPELIB_PATH")
 AMP_CHECK = "/usr/local/sbin/duo-cs35l41-check"
 
 sys.path.insert(0, HERE)
@@ -546,9 +550,17 @@ def read_config():
     return path, values, managed, ""
 
 
+def pygi_env():
+    """The environment for PYGI: ours without NIX_LIB_VARS, or ours as it is
+    (None) when DUO_PYGI names the interpreter."""
+    if os.environ.get("DUO_PYGI"):
+        return None
+    return {k: v for k, v in os.environ.items() if k not in NIX_LIB_VARS}
+
+
 def read_displays():
     """(state dict or None, layout-show lines, error) from Mutter, via displayctl."""
-    rc, out, err = run([PYGI, DISPLAYCTL, "state", "--json"], timeout=15)
+    rc, out, err = run([PYGI, DISPLAYCTL, "state", "--json"], timeout=15, env=pygi_env())
     if rc != 0:
         return None, [], (err.strip().splitlines() or [f"displayctl exited {rc}"])[-1]
     try:

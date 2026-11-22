@@ -418,5 +418,20 @@ class BrightnessStep(unittest.TestCase):
         self.assertEqual(displayctl.run(["brightness", "sideways"]), 64)
 
 
+
+class GiMissingTest(unittest.TestCase):
+    def test_no_gi_at_all_is_the_plain_message(self):
+        self.assertEqual(displayctl.gi_missing("No module named 'gi'"), displayctl.GI_MISSING)
+        self.assertEqual(displayctl.gi_missing(""), displayctl.GI_MISSING)
+
+    def test_gi_that_would_not_load_says_why(self):
+        # Ubuntu's gi under a Nix LD_LIBRARY_PATH, as seen on 2026-11-22.
+        err = ("/lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.43' not found "
+               "(required by /nix/store/x-glib-2.90.0/lib/libglib-2.0.so.0)")
+        msg = displayctl.gi_missing(err)
+        self.assertTrue(msg.startswith(displayctl.GI_MISSING))
+        self.assertIn("GLIBC_2.43", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

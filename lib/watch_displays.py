@@ -93,8 +93,8 @@ import touch_map  # noqa: E402  (same directory)
 
 try:
     from gi.repository import Gio, GLib  # noqa: E402
-except ImportError:
-    print(displayctl.GI_MISSING, file=sys.stderr)
+except ImportError as e:
+    print(displayctl.gi_missing(str(e)), file=sys.stderr)
     sys.exit(1)
 
 POLL_SECONDS = 1
