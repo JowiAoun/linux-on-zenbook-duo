@@ -112,6 +112,11 @@
   hand and now pairs the controllers by ACPI name, so a unit with other
   product ids works too; `--show`, `--identify` and `--reset` are new, and
   `duo doctor` says whether it is in place
+- The touch mapping reaches GNOME when Nix's `gsettings` comes first on
+  `PATH`, as it does with home-manager. That build has no dconf module, so it
+  wrote the mapping to `~/.config/glib-2.0/settings/keyfile`, which GNOME
+  never reads, and read it back from there as "in place". It now runs
+  `/usr/bin/gsettings` whenever that exists, without Nix's library path
 - Bluetooth earbuds no longer drop to mono phone quality for every app when
   Discord or a browser opens the microphone: WirePlumber's headset autoswitch
   is off (`zenduo.bluetoothStereo`, `./install.sh --no-bluetooth-stereo` to

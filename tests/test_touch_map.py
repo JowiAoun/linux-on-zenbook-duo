@@ -93,12 +93,39 @@ class GVariantTest(unittest.TestCase):
 
     def test_gsettings_set_writes_one_typed_value(self):
         calls = []
-        with mock.patch.object(tm, "run", side_effect=lambda argv, **k: (calls.append(argv), (0, ""))[1]):
+        with mock.patch.object(tm, "DISTRO_GSETTINGS", "/nonexistent/gsettings"), \
+             mock.patch.object(tm, "run", side_effect=lambda argv, **k: (calls.append(argv), (0, ""))[1]):
             tm.GSettings().set(TOUCH, "/org/gnome/desktop/peripherals/touchscreens/04f3:42ec/",
                                ["SDC", "0x41a0", "0x00000000", "eDP-2"])
         self.assertEqual(calls, [["gsettings", "set",
                                   f"{TOUCH}:/org/gnome/desktop/peripherals/touchscreens/04f3:42ec/",
                                   "output", "['SDC', '0x41a0', '0x00000000', 'eDP-2']"]])
+
+    def test_the_distro_gsettings_wins_over_nix_on_path(self):
+        # Nix's gsettings first on PATH wrote a keyfile GNOME never reads
+        # (2026-11-22). The distro's one runs, without Nix's libgio.
+        with tempfile.TemporaryDirectory() as d:
+            distro = os.path.join(d, "gsettings")
+            with open(distro, "w") as f:
+                f.write("#!/bin/sh\n")
+            os.chmod(distro, 0o755)
+            seen = []
+            nix_env = {"PATH": "/home/u/.nix-profile/bin:/usr/bin", "HOME": "/home/u",
+                       "LD_LIBRARY_PATH": "/nix/store/x-glib-2.90.0/lib",
+                       "GIO_EXTRA_MODULES": "/nix/store/y/lib/gio/modules"}
+            with mock.patch.object(tm, "DISTRO_GSETTINGS", distro), \
+                 mock.patch.dict(os.environ, nix_env, clear=True), \
+                 mock.patch.object(tm, "run",
+                                   side_effect=lambda argv, **k: (seen.append((argv, k.get("env"))), (0, ""))[1]):
+                tm.GSettings().set(TOUCH, "/x/", ["SDC", "0x41a0", "0x00000000", "eDP-2"])
+        argv, env = seen[0]
+        self.assertEqual(argv[0], distro)
+        self.assertEqual(env, {"PATH": "/home/u/.nix-profile/bin:/usr/bin", "HOME": "/home/u"})
+
+    def test_without_a_distro_binary_path_and_env_are_kept(self):
+        # NixOS: no /usr/bin/gsettings, and GIO_EXTRA_MODULES is how it finds dconf.
+        with mock.patch.object(tm, "DISTRO_GSETTINGS", "/nonexistent/gsettings"):
+            self.assertEqual(tm.gsettings_command(), ("gsettings", None))
 
 
 class PlanTest(unittest.TestCase):

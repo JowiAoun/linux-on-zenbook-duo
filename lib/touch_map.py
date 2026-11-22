@@ -106,10 +106,10 @@ class Step:
     extra: dict = field(default_factory=dict)
 
 
-def run(argv, timeout=10):
+def run(argv, timeout=10, env=None):
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
-                           stdin=subprocess.DEVNULL)
+                           stdin=subprocess.DEVNULL, env=env)
     except FileNotFoundError:
         return 127, f"{argv[0]}: not found"
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -164,24 +164,53 @@ def from_gvariant(text):
     return None
 
 
+# The distro's own gsettings, used whenever it exists. A Nix or home-manager
+# profile puts Nix's gsettings first on PATH, and on a distro that build has no
+# dconf module, so it reads and writes ~/.config/glib-2.0/settings/keyfile,
+# which GNOME never reads. It also reads its own writes back, so the mapping
+# looked "in place" while Mutter still guessed. Measured 2026-11-22 on Ubuntu
+# 24.04 with glib 2.90.0 from nixpkgs first on the daemon's PATH: the keyfile
+# held all four values, dconf held none.
+DISTRO_GSETTINGS = "/usr/bin/gsettings"
+
+# Variables that load Nix's libgio or its modules into the distro's binary,
+# which then falls back to the same keyfile (an interactive shell from a
+# home-manager zsh sets LD_LIBRARY_PATH to Nix's glib).
+NIX_GIO_VARS = ("LD_LIBRARY_PATH", "GIO_MODULE_DIR", "GIO_EXTRA_MODULES")
+
+
+def gsettings_command():
+    """The gsettings to run, and the environment to run it in (None keeps
+    ours). Without a distro binary (NixOS) the one on PATH is right, and so
+    are the GIO variables the system set for it."""
+    if os.access(DISTRO_GSETTINGS, os.X_OK):
+        env = {k: v for k, v in os.environ.items() if k not in NIX_GIO_VARS}
+        return DISTRO_GSETTINGS, env
+    return "gsettings", None
+
+
 class GSettings:
     """The `output` key of one schema at one path. A value of all empty
     strings is what GNOME ships and means "guess", so it reads as None."""
 
+    def _run(self, *args):
+        cmd, env = gsettings_command()
+        return run([cmd, *args], env=env)
+
     def get(self, schema, path):
-        rc, out = run(["gsettings", "get", f"{schema}:{path}", "output"])
+        rc, out = self._run("get", f"{schema}:{path}", "output")
         if rc != 0:
             raise MapError(f"gsettings get {schema}:{path} failed: {out.strip()}")
         value = from_gvariant(out)
         return value if value and any(value) else None
 
     def set(self, schema, path, values):
-        rc, out = run(["gsettings", "set", f"{schema}:{path}", "output", to_gvariant(values)])
+        rc, out = self._run("set", f"{schema}:{path}", "output", to_gvariant(values))
         if rc != 0:
             raise MapError(f"gsettings set {schema}:{path} failed: {out.strip()}")
 
     def reset(self, schema, path):
-        rc, out = run(["gsettings", "reset", f"{schema}:{path}", "output"])
+        rc, out = self._run("reset", f"{schema}:{path}", "output")
         if rc != 0:
             raise MapError(f"gsettings reset {schema}:{path} failed: {out.strip()}")
 
