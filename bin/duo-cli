@@ -268,6 +268,13 @@ ck() { # <PASS|WARN|FAIL|INFO> <must?0/1> <message>
   esac
 }
 
+# Count the NVMe requests the kernel had to rescue, in kernel log text.
+# "completion polled" means the drive had finished the request but its
+# interrupt never arrived, so the request sat out the whole I/O timeout first.
+nvme_stalls() { # <kernel log text> -> a count
+  grep -cE 'nvme[0-9]+: I/O .*timeout, completion polled' <<<"$1" || true
+}
+
 cmd_doctor() {
   echo "== zenduo doctor $(cat "$DUO_ROOT/VERSION" 2>/dev/null || echo dev) — $(date -u +%FT%TZ) =="
   echo
@@ -307,7 +314,7 @@ cmd_doctor() {
   fi
 
   echo
-  echo "-- storage (V16) --"
+  echo "-- storage (V16/V17) --"
   local nvme_names="" d
   for d in /sys/block/nvme*; do
     [ -e "$d" ] && nvme_names="$nvme_names$(basename "$d") "
@@ -324,8 +331,25 @@ cmd_doctor() {
   if command -v lspci >/dev/null 2>&1; then
     vmd_out="$(lspci 2>/dev/null || true)"
   fi
+  local on_vmd=0
   if grep -qi 'volume management device' <<<"$vmd_out"; then
-    ck INFO 0 "Intel VMD controller present (NVMe is behind VMD; fine if the disk is visible)"
+    on_vmd=1
+    ck INFO 0 "Intel VMD controller present (the NVMe is behind it)"
+  fi
+  # dmesg needs root once kernel.dmesg_restrict is on (Ubuntu's default); the
+  # kernel journal only needs the adm group, so try that before giving up.
+  local klog stalls io_timeout
+  klog="$(dmesg 2>/dev/null || journalctl -k -b -o cat --no-pager 2>/dev/null || true)"
+  if [ -n "$klog" ] && [ -n "$nvme_names" ]; then
+    stalls="$(nvme_stalls "$klog")"
+    io_timeout="$(cat /sys/module/nvme_core/parameters/io_timeout 2>/dev/null || echo 30)"
+    if [ "${stalls:-0}" -gt 0 ]; then
+      local cause=""
+      if [ "$on_vmd" = 1 ]; then cause=". Intel VMD is the known cause, see docs/HARDWARE.md V17"; fi
+      ck WARN 0 "NVMe: $stalls disk requests this boot waited ${io_timeout}s each for an interrupt that never came (\"completion polled\")$cause"
+    else
+      ck PASS 0 "NVMe: no lost interrupts this boot"
+    fi
   fi
 
   echo
@@ -606,10 +630,7 @@ cmd_doctor() {
 
   echo
   echo "-- kernel log scan --"
-  # dmesg needs root once kernel.dmesg_restrict is on (Ubuntu's default); the
-  # kernel journal only needs the adm group, so try that before giving up.
-  local klog
-  klog="$(dmesg 2>/dev/null || journalctl -k -b -o cat --no-pager 2>/dev/null || true)"
+  # $klog was read in the storage section.
   if [ -n "$klog" ]; then
     local bad
     bad="$(grep -iE '(i915|asus|sof|cs35l41).*(error|fail|timeout)' <<<"$klog" | tail -n 5 || true)"

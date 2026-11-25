@@ -270,6 +270,19 @@ fake_kernel_journal clean; is "a clean boot exits 0"                            
 fake_kernel_journal bad;   is "the PUP_DONE timeout exits 1"                                "$(check_rc)" 1
 rm -rf "$chk_dir"
 
+# ── nvme_stalls, extracted from bin/duo-cli ──────────────────────────────────
+# Its count feeds `duo doctor`. The lines are real ones from a 7.0 kernel and
+# from the 2024 VMD patch (an older kernel's wording).
+group "nvme_stalls"
+eval "$(sed -n '/^nvme_stalls() {/,/^}/p' bin/duo-cli)"
+is "the function was extracted"             "$(type -t nvme_stalls)" function
+is "a 7.0 kernel's line counts"             "$(nvme_stalls 'nvme nvme0: I/O tag 131 (c083) QID 9 timeout, completion polled')" 1
+is "the older wording counts"               "$(nvme_stalls 'nvme nvme0: I/O 259 QID 2 timeout, completion polled')" 1
+is "a dmesg timestamp in front still counts" "$(nvme_stalls '[  65.123456] nvme nvme0: I/O tag 768 (3300) QID 2 timeout, completion polled')" 1
+is "every line is counted"                  "$(nvme_stalls $'nvme nvme0: I/O tag 1 (0001) QID 4 timeout, completion polled\nusb 1-1: new device\nnvme nvme0: I/O tag 64 (f040) QID 1 timeout, completion polled')" 2
+is "an aborted request is not a lost interrupt" "$(nvme_stalls 'nvme nvme0: I/O tag 5 (0005) QID 1 timeout, aborting')" 0
+is "an empty log is zero"                   "$(nvme_stalls '')" 0
+
 # ── nix_managed ──────────────────────────────────────────────────────────────
 group "nix_managed"
 nm_dir="$(mktemp -d)"

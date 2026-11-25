@@ -68,6 +68,17 @@
   streams: `pw-metadata -n settings 0 clock.min-quantum 1024` re-opens the
   device, where restarting PipeWire takes Wine and FMOD clients down with it
 
+### `duo doctor` counts disk stalls
+
+- The Duo's NVMe sits behind Intel VMD, and VMD loses some of its interrupts
+  (Intel erratum MTL016). Each lost one freezes the disk for 30 s. It shows on
+  every boot since at least 2026-08-31, on kernels 6.8 and 7.0, and one login
+  screen took 28 minutes because Ubuntu's boot-time clean of `/tmp` kept
+  hitting it
+- `duo doctor` counts them since boot (`completion polled` in the kernel log)
+  and points to [docs/HARDWARE.md](docs/HARDWARE.md#storage), which has the
+  cause and the BIOS setting to try
+
 ### Security
 
 - `duo layout login` (the root helper's `login-layout`) checked

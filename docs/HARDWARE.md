@@ -25,7 +25,7 @@ kept so code comments and the research stay cross-referenced.
 | Sensors | 3 IIO devices; iio-sensor-proxy runs |
 | Thermal | `platform_profile`: quiet / balanced / performance, native (no ACPI patching needed) |
 | Suspend | `mem_sleep`: `[s2idle] deep` — s2idle is the default and the tested one |
-| Storage | NVMe behind Intel VMD; visible to Linux as-is. **Never toggle the BIOS storage mode** — it breaks Windows |
+| Storage | NVMe behind Intel VMD; visible to Linux as-is, but VMD loses some of its interrupts (V17, [Storage](#storage)). This unit: WD PC SN560 `15b7:5017`. **Never toggle the BIOS storage mode** — it breaks Windows |
 | Fingerprint | none; the IR camera is the biometric device |
 | BIOS | F2 setup, Esc boot menu, EZ-Flash for USB updates; 312 (2026-03-10) |
 
@@ -45,6 +45,7 @@ kept so code comments and the research stay cross-referenced.
 | V14 | udev rules on the pogo keyboard storm | 📄 both upstreams converged on polling; we poll at 1 Hz |
 | V15 | AX211 typical, BE200 possible | 📄 |
 | V16 | VMD could hide the NVMe | ✅ non-issue |
+| V17 | Behind VMD, the NVMe loses interrupts: 30 s disk stalls | ✅ measured on every boot since 2026-08-31, on 6.8 and 7.0; VMD off is VERIFY-ON-HW, see [Storage](#storage) |
 
 ## The keyboard, in detail
 
@@ -327,6 +328,32 @@ fix is a drop-in for the three units,
 whose `ExecStartPre` asks rtkit for a property, which starts it and waits for
 it, before the service starts. `./install.sh --user` also grants the priority
 to the loops running now, and `duo doctor` says which loops lack it.
+
+## Storage
+
+- **Lost interrupts** (MEASURED 2026-11-24, from the kernel journal of every
+  boot since 2026-08-31): the kernel logs
+  `nvme nvme0: I/O tag 131 (c083) QID 9 timeout, completion polled` 3 to 34
+  times a boot, on kernels 7.0.0-30 to 7.0.0-43 and on 6.8.0-151. Each line is
+  a request the drive had finished, but its interrupt never arrived. The
+  request waits out `nvme_core.io_timeout` (30 s), then the kernel polls and
+  finds it done. Anything waiting on the disk freezes for those 30 s.
+- **The boot is where it hurts.** Ubuntu empties `/tmp`, which is on the root
+  filesystem, before the login screen. That is thousands of small requests in a
+  row, so it collects stalls: on 2026-11-24, 32 of them landed in that one job,
+  and the login screen took 28 minutes across a forced restart.
+- **Cause:** Intel erratum MTL016, quoted in the LKML patch
+  ["PCI: vmd: Delay interrupt handling on MTL VMD controller"](https://lkml.iu.edu/2409.0/02004.html)
+  (2024-09): Meteor Lake's VMD raises the interrupt before the data is ready.
+  Reviewers asked for a different fix, and no merged version was found. Other
+  ASUS laptops still show it on 7.1.8
+  ([Fedora discussion](https://discussion.fedoraproject.org/t/nvme-i-o-timeouts-and-slow-boot-on-asus-zenbook-with-micron-mtfdkba1t0qgn/187890)).
+- **Fix:** turn VMD off in the BIOS (Advanced Mode, F7, Advanced tab, "VMD
+  setup menu"). It stopped the stalls on an ASUS Zenbook 14 and a Vivobook S14
+  in that discussion. Ubuntu's initramfs carries `nvme.ko`, and the disk is
+  found by UUID, so a Linux-only disk boots the same. A disk that still has
+  Windows needs VMD on. VERIFY-ON-HW on a Duo.
+- `duo doctor` counts the stalls since boot.
 
 ## Dual boot
 
